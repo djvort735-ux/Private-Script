@@ -1,9 +1,3 @@
--- language: Luau, file: vortex_hub.lua, target: roblox delta runtime (live client / studio)
--- [crez]
--- Vortex hub: key gate -> pick 1 of 4 menu skins (Classic / Windows / Dock / Terminal) -> hub.
--- Logs: deduplicated, rendered ONCE; a new report appears only after REFRESH LOG (CLEAR LOG wipes it).
--- Note: the engine renders max 31 Highlights at once, so Chams is capped by Roblox itself.
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
