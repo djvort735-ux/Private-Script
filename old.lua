@@ -363,7 +363,7 @@ local function GlowStroke(parent)
 end
 
 ---------------------------------------------------------------- AUTH
-local KeyConfig = {AllowedUsers = {["KickVortex777"] = "boom", ["735_45"] = "na"}}
+local KeyConfig = {AllowedUsers = {["name"] = "password"}}
 local function Authorize(input)
 	local personal = KeyConfig.AllowedUsers[LocalPlayer.Name]
 	if personal == nil then return false, "This account is not authorized" end
