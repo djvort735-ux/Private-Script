@@ -353,14 +353,6 @@ local function GlowStroke(parent)
 	return spin
 end
 
-local KeyConfig = {AllowedUsers = {["KickVortex777"] = "g", ["KickVortex"] = "g"}}
-local function Authorize(input)
-	local personal = KeyConfig.AllowedUsers[LocalPlayer.Name]
-	if personal == nil then return false, "This account is not authorized" end
-	if input == personal then return true end
-	return false, "Invalid key"
-end
-
 local CONFIG_FOLDER = "VortexCheats"
 local function EnsureFolder()
 	return (pcall(function() if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end end))
@@ -3843,132 +3835,6 @@ local function RunMenuPicker(onPick)
 	end)
 end
 
-local function RunKeySystem(onSuccess)
-	local gui = New("ScreenGui", PlayerGui, {Name = "VortexAuth", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 100})
-	local dim = New("Frame", gui, {Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0, Active = true})
-	local card = Round(New("CanvasGroup", gui, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(380,310),
-		BackgroundColor3 = "@Background", BorderSizePixel = 0, GroupTransparency = 1}), 14)
-	local scale = New("UIScale", card, {Scale = 0.9})
-	local glow = GlowStroke(card)
-
-	local closeAuth = Round(New("TextButton", card, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-14,0,14), Size = UDim2.fromOffset(26,26), BackgroundColor3 = "@Row",
-		Text = "X", TextColor3 = Color3.fromRGB(255,90,100), Font = GOTHB, TextSize = 13, AutoButtonColor = false, BorderSizePixel = 0}), 7)
-	closeAuth.MouseEnter:Connect(function() Tween(closeAuth, {BackgroundColor3 = Theme.Border}, 0.12) end)
-	closeAuth.MouseLeave:Connect(function() Tween(closeAuth, {BackgroundColor3 = Theme.Row}, 0.12) end)
-	closeAuth.MouseButton1Click:Connect(function()
-		DebugLog.Push("system", "auth window closed by user, script terminated")
-		Tween(dim, {BackgroundTransparency = 1}, 0.2)
-		Tween(card, {GroupTransparency = 1}, 0.2)
-		task.delay(0.22, function() glow:Cancel(); gui:Destroy(); table.clear(Refreshers) end)
-	end)
-
-	New("TextLabel", card, {Position = UDim2.fromOffset(0,28), Size = UDim2.new(1,0,0,30), BackgroundTransparency = 1, Text = "VORTEX", TextColor3 = "@Text", Font = GOTHB, TextSize = 26})
-	New("TextLabel", card, {Position = UDim2.fromOffset(0,60), Size = UDim2.new(1,0,0,16), BackgroundTransparency = 1, Text = "SECURE ACCESS", TextColor3 = "@Accent", Font = GOTHM, TextSize = 11})
-
-	local account = Round(New("Frame", card, {Position = UDim2.fromOffset(30,100), Size = UDim2.new(1,-60,0,40), BackgroundColor3 = "@Row", BorderSizePixel = 0}), 8)
-	New("TextLabel", account, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(0.4,0,1,0), BackgroundTransparency = 1, Text = "ACCOUNT", TextColor3 = "@Muted", Font = GOTHB, TextSize = 10, TextXAlignment = LEFT})
-	New("TextLabel", account, {Position = UDim2.new(0.4,0,0,0), Size = UDim2.new(0.6,-14,1,0), BackgroundTransparency = 1, Text = LocalPlayer.Name, TextColor3 = "@Text",
-		Font = GOTHM, TextSize = 12, TextXAlignment = RIGHT, TextTruncate = Enum.TextTruncate.AtEnd})
-
-	local inputRow = Round(New("Frame", card, {Position = UDim2.fromOffset(30,150), Size = UDim2.new(1,-60,0,40), BackgroundColor3 = "@Row", BorderSizePixel = 0}), 8)
-	local inputStroke = New("UIStroke", inputRow, {Color = "@Border", Thickness = 1})
-
-	local RealInput, LastMasked, Guard = "", "", false
-	local box = New("TextBox", inputRow, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,-28,1,0), BackgroundTransparency = 1, Text = "", PlaceholderText = "Enter access key",
-		PlaceholderColor3 = "@Muted", TextColor3 = "@Text", Font = GOTHM, TextSize = 13, TextXAlignment = LEFT, ClearTextOnFocus = false})
-	local function SyncMask()
-		local masked = string.rep("*", #RealInput)
-		LastMasked = masked
-		Guard = true
-		box.Text = masked
-		box.CursorPosition = #masked + 1
-		Guard = false
-	end
-	box:GetPropertyChangedSignal("Text"):Connect(function()
-		if Guard then return end
-		local shown = box.Text
-		if shown == LastMasked then return end
-		if #shown > #LastMasked then
-			local added = string.gsub(string.sub(shown, #LastMasked + 1), "%*", "")
-			RealInput ..= added
-		else
-			RealInput = string.sub(RealInput, 1, math.max(#RealInput - (#LastMasked - #shown), 0))
-		end
-		SyncMask()
-	end)
-
-	local button = Round(New("TextButton", card, {Position = UDim2.fromOffset(30,204), Size = UDim2.new(1,-60,0,40), BackgroundColor3 = "@Accent", Text = "AUTHORIZE",
-		TextColor3 = "@Background", Font = GOTHB, TextSize = 13, AutoButtonColor = false, BorderSizePixel = 0}), 8)
-	local status = New("TextLabel", card, {Position = UDim2.fromOffset(30,256), Size = UDim2.new(1,-60,0,30), BackgroundTransparency = 1, Text = "Enter your personal key",
-		TextColor3 = "@SubText", Font = GOTHM, TextSize = 12, TextWrapped = true})
-
-	local success, danger = Color3.fromRGB(90,220,140), Color3.fromRGB(255,90,100)
-	local attempts, locked, busy = 0, false, false
-	local function SetStatus(text, color) status.Text = text; Tween(status, {TextColor3 = color}, 0.2) end
-	local function Shake()
-		for _, off in ipairs({-10, 10, -6, 6, 0}) do
-			if not card.Parent then return end
-			card.Position = UDim2.new(0.5, off, 0.5, 0)
-			task.wait(0.045)
-		end
-	end
-	local function Lock()
-		locked = true
-		task.spawn(function()
-			for remaining = 30, 1, -1 do
-				if not gui.Parent then return end
-				SetStatus("Too many attempts. Retry in " .. remaining .. "s", danger)
-				task.wait(1)
-			end
-			if not gui.Parent then return end
-			attempts, locked = 0, false
-			SetStatus("Enter your personal key", Theme.SubText)
-		end)
-	end
-	local function Submit()
-		if locked or busy then return end
-		local ok, reason = Authorize(RealInput)
-		if ok then
-			DebugLog.Push("auth", "access granted for " .. LocalPlayer.Name)
-			busy = true
-			SetStatus("Access granted", success)
-			Tween(button, {BackgroundColor3 = success}, 0.2)
-			task.delay(0.6, function()
-				Tween(card, {GroupTransparency = 1}, 0.3)
-				Tween(scale, {Scale = 1.06}, 0.3)
-				Tween(dim, {BackgroundTransparency = 1}, 0.3)
-				task.delay(0.35, function()
-					glow:Cancel()
-					gui:Destroy()
-					table.clear(Refreshers)
-					onSuccess()
-				end)
-			end)
-		else
-			attempts += 1
-			DebugLog.Push("auth", "access denied for " .. LocalPlayer.Name .. " (" .. reason .. ")")
-			SetStatus(reason, danger)
-			task.spawn(Shake)
-			if attempts >= 5 then
-				DebugLog.Push("auth", "lockout triggered after " .. attempts .. " failed attempts")
-				Lock()
-			end
-		end
-	end
-	box.Focused:Connect(function() Tween(inputStroke, {Color = Theme.Accent}, 0.15) end)
-	box.FocusLost:Connect(function(enter)
-		Tween(inputStroke, {Color = Theme.Border}, 0.15)
-		if enter then Submit() end
-	end)
-	button.MouseEnter:Connect(function() Tween(button, {BackgroundTransparency = 0.2}, 0.12) end)
-	button.MouseLeave:Connect(function() Tween(button, {BackgroundTransparency = 0}, 0.12) end)
-	button.MouseButton1Click:Connect(Submit)
-
-	Tween(dim, {BackgroundTransparency = 0.45}, 0.4)
-	Tween(card, {GroupTransparency = 0}, 0.35)
-	Tween(scale, {Scale = 1}, 0.45, Enum.EasingStyle.Back)
-end
-
 local function RunEula(onAccept)
 	local gui = New("ScreenGui", PlayerGui, {Name = "VortexEula", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 100})
 	local dim = New("Frame", gui, {Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0, Active = true})
@@ -4050,16 +3916,13 @@ local function ProceedPastEula()
 	end)
 end
 
-DebugLog.Push("system", "auth gate presented")
-RunKeySystem(function()
-	if LoadSetting("eula_accepted", "0") == "1" then
-		DebugLog.Push("system", "eula previously accepted, skipping")
-		ProceedPastEula()
-		return
-	end
+if LoadSetting("eula_accepted", "0") == "1" then
+	DebugLog.Push("system", "eula previously accepted, skipping")
+	ProceedPastEula()
+else
 	DebugLog.Push("system", "eula presented")
 	RunEula(function()
 		SaveSetting("eula_accepted", "1")
 		ProceedPastEula()
 	end)
-end)
+end
