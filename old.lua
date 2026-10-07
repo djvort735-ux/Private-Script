@@ -10,7 +10,6 @@ local TweenService = game:GetService("TweenService")
 local Env = (getgenv and getgenv()) or _G
 if type(Env.VortexUnload) == "function" then pcall(Env.VortexUnload); Env.VortexUnload = nil end
 
----------------------------------------------------------------- LOCALE
 local Locale = {Current = "EN", Registry = {}, Listeners = {}, Strings = {EN = {}, UA = {}, RU = {}}}
 local function L(k, en, ua, ru) Locale.Strings.EN[k] = en; Locale.Strings.UA[k] = ua; Locale.Strings.RU[k] = ru end
 
@@ -19,7 +18,11 @@ L("APP_SUB","COMBAT HUB","БОЙОВИЙ ХАБ","БОЕВОЙ ХАБ")
 L("TAB_AIMBOT","AIMBOT","АЙМБОТ","АИМБОТ")
 L("TAB_VISUALS","VISUALS","ВІЗУАЛ","ВИЗУАЛ")
 L("TAB_MOVEMENT","MOVEMENT","РУХ","ДВИЖЕНИЕ")
-L("TAB_WORLD","WORLD","СВІТ","МИР")
+L("TAB_PRESETS","PRESETS","ПРЕСЕТИ","ПРЕСЕТЫ")
+L("TAB_RENDERING","RENDERING","РЕНДЕРИНГ","РЕНДЕРИНГ")
+L("TAB_CAMERA","CAMERA","КАМЕРА","КАМЕРА")
+L("TAB_WEATHER","WEATHER","ПОГОДА","ПОГОДА")
+L("TAB_CROSSHAIR","CROSSHAIR","ПРИЦІЛ","ПРИЦЕЛ")
 L("TAB_PROFILE","PROFILE","ПРОФІЛЬ","ПРОФИЛЬ")
 L("TAB_DEBUG","LOGS","ЛОГИ","ЛОГИ")
 L("TAB_BINDS","BINDS","КЛАВІШІ","КЛАВИШИ")
@@ -238,16 +241,6 @@ L("TOAST_LOGREFRESH","Log report refreshed","Звіт логів оновлен�
 L("TOAST_SEEDED","Built-in configs installed: rage, legit","Вбудовані конфіги встановлено: rage, legit","Встроенные конфиги установлены: rage, legit")
 L("BIND_ZOOM","Zoom (hold)","Зум (утримувати)","Зум (удержание)")
 
-L("WT_PRE","PRE","ПРЕ","ПРЕ")
-L("WT_RENDER","REN","РЕН","РЕН")
-L("WT_CAM","CAM","КАМ","КАМ")
-L("WT_WEATHER","WTH","ПОГ","ПОГ")
-L("WT_ATMO","ATM","АТМ","АТМ")
-L("WT_TIME","TIME","ЧАС","ВРЕМ")
-L("WT_FX","FX","FX","FX")
-L("WT_CROSS","XHAIR","ПРИЦ","ПРИЦ")
-L("WT_HIT","HIT","ХИТ","ХИТ")
-
 function Locale.T(key)
 	local set = Locale.Strings[Locale.Current]
 	return (set and set[key]) or Locale.Strings.EN[key] or key
@@ -274,7 +267,6 @@ function Locale.SetLanguage(code, notify)
 	return true
 end
 
----------------------------------------------------------------- PLAYER / CLEANUP
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Camera = Workspace.CurrentCamera
@@ -284,7 +276,6 @@ for _, name in ipairs({"VortexAuth", "VortexOverlay", "VortexMenu", "VortexTheme
 	if old then old:Destroy() end
 end
 
----------------------------------------------------------------- THEME
 local ThemeKeys = {"Background", "Secondary", "Row", "Border", "Text", "SubText", "Muted", "Accent"}
 local function Pal(...)
 	local a, t = {...}, {}
@@ -304,7 +295,8 @@ local AccentColors = {
 	Violet = Color3.fromRGB(150,110,255), Cyan = Color3.fromRGB(70,210,255), Rose = Color3.fromRGB(255,96,150),
 	Emerald = Color3.fromRGB(70,225,140), Amber = Color3.fromRGB(255,190,70), White = Color3.fromRGB(240,240,240),
 }
-local SkinThemes = {Classic = {"Obsidian", "Theme"}, Windows = {"Crimson", "Theme"}, Dock = {"Ocean", "Theme"}, Terminal = {"Mono", "Emerald"}}
+local SkinThemes = {Classic = {"Obsidian", "Theme"}, Windows = {"Crimson", "Theme"}, Dock = {"Ocean", "Theme"}, Terminal = {"Mono", "Emerald"},
+	Notch = {"Obsidian", "Cyan"}, HUDStrip = {"Crimson", "Rose"}, Radial = {"Ocean", "Theme"}}
 
 local Prefs = {Theme = "Obsidian", Accent = "Theme"}
 local Theme, Bound, Refreshers = {}, {}, {}
@@ -327,7 +319,6 @@ local function ApplyTheme()
 end
 ApplyTheme()
 
--- New(class, parent, props): a string prop value like "@Accent" on a *Color* property binds it to the live theme.
 local function New(class, parent, props)
 	local o = Instance.new(class)
 	for p, v in pairs(props or {}) do
@@ -362,8 +353,7 @@ local function GlowStroke(parent)
 	return spin
 end
 
----------------------------------------------------------------- AUTH
-local KeyConfig = {AllowedUsers = {["name"] = "password"}}
+local KeyConfig = {AllowedUsers = {["KickVortex777"] = "g", ["KickVortex"] = "g"}}
 local function Authorize(input)
 	local personal = KeyConfig.AllowedUsers[LocalPlayer.Name]
 	if personal == nil then return false, "This account is not authorized" end
@@ -371,7 +361,6 @@ local function Authorize(input)
 	return false, "Invalid key"
 end
 
----------------------------------------------------------------- CONFIG FILES
 local CONFIG_FOLDER = "VortexCheats"
 local function EnsureFolder()
 	return (pcall(function() if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end end))
@@ -396,8 +385,31 @@ local function ListConfigs()
 	return names
 end
 
--- BuiltinConfigs: seeded once into VortexCheats/ on boot if the file does not already exist.
--- After that they are plain files -- SAVE TO FILE with name "rage" or "legit" overwrites them like any other config.
+local STATE_FOLDER = CONFIG_FOLDER .. "/state"
+local function EnsureStateFolder()
+	return (pcall(function()
+		if not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end
+		if not isfolder(STATE_FOLDER) then makefolder(STATE_FOLDER) end
+	end))
+end
+local function SaveSetting(name, value)
+	local safe = SanitizeFileName(name)
+	if not safe then return false end
+	if not EnsureStateFolder() then return false end
+	return (pcall(function() writefile(STATE_FOLDER .. "/" .. safe .. ".txt", tostring(value)) end))
+end
+local function LoadSetting(name, default)
+	local safe = SanitizeFileName(name)
+	if not safe then return default end
+	local path = STATE_FOLDER .. "/" .. safe .. ".txt"
+	local ok, content = pcall(function()
+		if not isfile(path) then error("missing") end
+		return readfile(path)
+	end)
+	if not ok then return default end
+	return content
+end
+
 local BuiltinConfigs = {
 	rage = {
 		AimbotEnabled = true, AimHold = false, AimTeamCheck = true, AimIgnoreBots = false, VisibleCheck = false, AimPart = "Head", AimSpeed = 45,
@@ -449,7 +461,6 @@ local function SeedBuiltinConfigs(log)
 	return seeded
 end
 
----------------------------------------------------------------- DEBUG LOG (dedupe + snapshot report)
 local DebugLog = {List = {}, Map = {}, Max = 300}
 function DebugLog.Push(mod, text, isErr)
 	local id = mod .. "|" .. text
@@ -493,7 +504,6 @@ end
 local GOTH, GOTHB, GOTHM, CODE = Enum.Font.Gotham, Enum.Font.GothamBold, Enum.Font.GothamMedium, Enum.Font.Code
 local LEFT, RIGHT, CENTER = Enum.TextXAlignment.Left, Enum.TextXAlignment.Right, Enum.TextXAlignment.Center
 
----------------------------------------------------------------- HUB
 local function LaunchHub(skinName)
 	local pref = SkinThemes[skinName] or SkinThemes.Classic
 	Prefs.Theme, Prefs.Accent = pref[1], pref[2]
@@ -603,6 +613,26 @@ local EntryOrder, EntryIndex = {}, {}
 	local Skins = {}
 
 	local function Connect(sig, cb) local c = sig:Connect(cb); table.insert(Conns, c); return c end
+
+	local function CollapseOnScroll(header, group, chevron)
+		local collapsed = false
+		local hovering = false
+		local function Paint()
+			group.Visible = not collapsed
+			if chevron then Tween(chevron, {Rotation = collapsed and -90 or 0}, 0.15) end
+		end
+		Connect(header.MouseEnter, function() hovering = true end)
+		Connect(header.MouseLeave, function() hovering = false end)
+		Connect(UserInputService.InputChanged, function(input)
+			if not hovering then return end
+			if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+			local up = input.Position.Z > 0
+			if up and not collapsed then collapsed = true; Paint()
+			elseif (not up) and collapsed then collapsed = false; Paint() end
+		end)
+		return {IsCollapsed = function() return collapsed end}
+	end
+
 	local function SetValue(key, value)
 		S[key] = value
 		if Sync[key] then for _, fn in ipairs(Sync[key]) do fn() end end
@@ -655,7 +685,6 @@ local EntryOrder, EntryIndex = {}, {}
 	local TriggerParams = RaycastParams.new()
 	TriggerParams.FilterType = Enum.RaycastFilterType.Exclude; TriggerParams.IgnoreWater = true; TriggerParams.RespectCanCollide = false
 
-	---------------------------------------------------------- FREECAM
 	local function MoveDir(rot)
 		local d = Vector3.zero
 		if UserInputService:IsKeyDown(Enum.KeyCode.W) then d += rot.LookVector end
@@ -705,7 +734,6 @@ local EntryOrder, EntryIndex = {}, {}
 		Camera.CFrame = CFrame.new(Freecam.Position) * rot
 	end
 
-	---------------------------------------------------------- COMBAT
 	local function IsEnemy(player, teamCheck)
 		if player == LocalPlayer then return false end
 		if teamCheck and player.Team ~= nil and player.Team == LocalPlayer.Team then return false end
@@ -832,8 +860,6 @@ local EntryOrder, EntryIndex = {}, {}
 	local function FireTrigger()
 		if MenuState.Open or UserInputService:GetFocusedTextBox() then return false end
 
-		-- Auto mode tries executor mouse click first, then VIM, then Tool.
-		-- Only one path is used per shot to avoid accidental double-fire.
 		if S.TriggerClickMode == "Tool" then
 			local ch = LocalPlayer.Character
 			local tool = ch and ch:FindFirstChildOfClass("Tool")
@@ -914,9 +940,6 @@ local EntryOrder, EntryIndex = {}, {}
 		return entity, part, e
 	end
 
-	-- Round-robin cursor over EntryOrder for the wide trigger scan, same shape as
-	-- OverlayRuntime: bounds per-tick work instead of walking the full entry table
-	-- (bots + teammates included) every throttle tick regardless of population.
 	local TriggerScanRuntime = {Cursor = 1}
 	local function FindTriggerTarget()
 		local vp = Camera.ViewportSize
@@ -927,7 +950,6 @@ local EntryOrder, EntryIndex = {}, {}
 		local maxDistSq = S.TriggerMaxDistance * S.TriggerMaxDistance
 		TriggerParams.FilterDescendantsInstances = (LocalPlayer.Character and {LocalPlayer.Character}) or {}
 
-		-- Exact center hit is both faster and more reliable than a pure screen-distance test.
 		local hitEntity, hitPart, hitEntry = CenterRayTarget()
 		if hitEntity and hitPart then
 			return hitEntity, hitPart, hitEntry
@@ -1004,7 +1026,6 @@ local EntryOrder, EntryIndex = {}, {}
 			return a.Distance < b.Distance
 		end)
 
-		-- Only expensive wall checks for the few best candidates.
 		for i = 1, #candidates do
 			local c = candidates[i]
 			local e = c.Entry
@@ -1018,10 +1039,6 @@ local EntryOrder, EntryIndex = {}, {}
 	end
 
 	local function TriggerTargetStillValid(entity, part, e)
-		-- Check Entries[entity] directly, not just e:Refresh() — if the entry table
-		-- dropped the key (Workspace.DescendantRemoving on the same frame as a
-		-- ragdoll/despawn), `e` is a stale table reference that still refreshes
-		-- clean against a Character whose Parent is gone. Catch it here, not there.
 		if not entity or not part or not e or Entries[entity] ~= e or not e.Refresh() then return false end
 		if not EntryIsTargetable(entity, e, S.TriggerTeamCheck, S.TriggerIgnoreBots) then return false end
 		local maxDist = math.max(S.TriggerMaxDistance, 1)
@@ -1069,7 +1086,6 @@ local EntryOrder, EntryIndex = {}, {}
 				currentEntity, currentPart, currentEntry = centerEntity, centerPart, centerEntry
 				lockedValid = true
 			end
-			-- Wide search is throttled; this avoids a 50-player full scan every frame.
 			if (not lockedValid) and now - (Trigger.LastScan or 0) >= (Trigger.ScanInterval or 1 / 30) then
 				currentEntity, currentPart, currentEntry = FindTriggerTarget()
 				Trigger.LastScan = now
@@ -1101,7 +1117,6 @@ local EntryOrder, EntryIndex = {}, {}
 		end
 	end
 
-	---------------------------------------------------------- ESP
 	local function DrawLine(f, a, b, color, th)
 		local d = b - a
 		f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
@@ -1113,10 +1128,6 @@ local EntryOrder, EntryIndex = {}, {}
 	local NextBotId = 0
 	local BotByHumanoid, BotByRoot = {}, {}
 
-	-- Moved above NewEntry/UpdateEntry/RegisterBotModel: these are all built as closures
-	-- before this point in source order, and Luau does not hoist `local function` across
-	-- that boundary. Declared late, every closure above captured nil and crashed on first
-	-- bot spawn (caught silently by Safe(), degrading ESP/bot dedup from that frame on).
 	local function IsUnderPlayerCharacter(model)
 		if not model then return false end
 		local cur = model
@@ -1166,9 +1177,6 @@ local EntryOrder, EntryIndex = {}, {}
 		return canonical
 	end
 
-	-- Self-test: run each bot-identity fn against a synthetic dummy before the menu opens.
-	-- A forward-reference or scope break like the one this fix addresses now logs to
-	-- DebugLog at boot instead of surfacing on first live bot spawn.
 	do
 		local ok, err = pcall(function()
 			local dummy = Instance.new("Model")
@@ -1176,9 +1184,6 @@ local EntryOrder, EntryIndex = {}, {}
 			local hum = Instance.new("Humanoid", dummy)
 			local root = Instance.new("Part", dummy)
 			root.Name = "HumanoidRootPart"
-			-- Humanoid.RootPart is derived/read-only, not settable. The functions under
-			-- test fall back to model:FindFirstChild("HumanoidRootPart") when hum.RootPart
-			-- is nil, so naming the part is sufficient — no assignment needed here.
 			IsUnderPlayerCharacter(dummy)
 			IsBotModel(dummy)
 			GetBotParts(dummy)
@@ -1325,7 +1330,6 @@ local EntryOrder, EntryIndex = {}, {}
 		else
 			e.Tracer.Visible = false
 		end
-		-- Exactly one label above the target: BOT for NPCs, username for players.
 		if e.IsBot then
 			e.NameLabel.Position = UDim2.fromOffset(x, topY - 5)
 			e.NameLabel.Text = Locale.T("BOT_LABEL")
@@ -1410,7 +1414,6 @@ local EntryOrder, EntryIndex = {}, {}
 		end
 	end
 
-	---------------------------------------------------------- MOVEMENT
 	local CachedChar, CachedHum
 	local function GetHumanoid()
 		local ch = LocalPlayer.Character
@@ -1473,7 +1476,6 @@ local EntryOrder, EntryIndex = {}, {}
 		if flat.Magnitude > 0.01 then Fly.Align.CFrame = CFrame.lookAt(root.Position, root.Position + flat) end
 	end
 
-	---------------------------------------------------------- WORLD
 	for _, c in ipairs(Lighting:GetChildren()) do
 		if string.sub(c.Name, 1, 6) == "Vortex" then c:Destroy() end
 	end
@@ -1531,7 +1533,6 @@ local EntryOrder, EntryIndex = {}, {}
 		end)
 	end
 
-	-- Ovr: one registry for every property override, so features never fight over saved originals.
 	local Saved = {}
 	local function Ovr(id, on, save, apply, restore)
 		local e = Saved[id]
@@ -1631,8 +1632,6 @@ local EntryOrder, EntryIndex = {}, {}
 						Lighting.Ambient, Lighting.OutdoorAmbient = Color3.fromHSV(hue, 0.45, 0.7), Color3.fromHSV(hue, 0.45, 0.7)
 					end
 				end
-				-- Lowest priority: only tints ambient if neither FullBright nor Rainbow
-				-- already claimed Lighting.Ambient/OutdoorAmbient this frame.
 				if S.AmbientEnabled and not S.FullBrightEnabled and not S.RainbowEnabled then
 					local col = TintColor(S.AmbientColorName)
 					local mixed = col:Lerp(Color3.fromRGB(128,128,128), 1 - S.AmbientIntensity)
@@ -1679,7 +1678,6 @@ local EntryOrder, EntryIndex = {}, {}
 		WeatherPart:Destroy()
 	end
 
-	---------------------------------------------------------- OVERLAY / CROSSHAIR / HITS
 	local FovFrame = Round(New("Frame", Overlay, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(300,300),
 		BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false}), 100)
 	New("UIStroke", FovFrame, {Color = "@Accent", Thickness = 1.5, Transparency = 0.35})
@@ -1905,12 +1903,6 @@ local EntryOrder, EntryIndex = {}, {}
 
 		local count = #EntryOrder
 		if count > 0 then
-			-- Position/box/name/tracer/skeleton all track the camera every frame —
-			-- no round-robin gate, no heavy/NextHeavy sub-throttle. The skeleton's
-			-- 0.10-0.16s redraw cadence was the lag: bones only reprojected on that
-			-- tick, so between ticks they trailed the rig and snapped visibly on
-			-- the tick itself. Per-bone WorldToViewportPoint is cheap enough at
-			-- normal entry counts to just run it every frame like the box does.
 			local now = os.clock()
 			local firing = (now - Combat.LastFire < 0.35) or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
 			for i = 1, count do
@@ -1942,7 +1934,6 @@ local EntryOrder, EntryIndex = {}, {}
 	end
 
 
-	---------------------------------------------------------- CONFIG / PRESETS / LOG ACTIONS
 	local function ApplyPreset(name)
 		if name == "None" then return end
 		for _, k in ipairs(WorldKeys) do SetValue(k, Defaults[k]) end
@@ -1967,9 +1958,6 @@ local EntryOrder, EntryIndex = {}, {}
 		end
 		return table.concat(parts, ";") .. "||" .. table.concat(tp, ";")
 	end
-	-- Populated after Spec/st are built (see ClampTable fill-in below DeserializeConfig's
-	-- declaration site — forward ref is safe here since it's only read inside the closure,
-	-- at call time, never at declaration time).
 	local ClampTable = {}
 	local function DeserializeConfig(text)
 		local applied = 0
@@ -1981,9 +1969,6 @@ local EntryOrder, EntryIndex = {}, {}
 			if k and raw and S[k] ~= nil and k ~= "WorldPreset" then
 				local cur, nv = S[k], raw
 				if type(cur) == "boolean" then nv = raw == "1" elseif type(cur) == "number" then nv = tonumber(raw) end
-				-- Reject rather than silently accept: a hand-edited/corrupted .cfg can
-				-- otherwise set e.g. ESPMaxDistance negative, which hides ESP with no
-				-- error — confusing dead-config state instead of a crash.
 				if type(nv) == "number" then
 					local range = ClampTable[k]
 					if range then nv = math.clamp(nv, range.min, range.max) end
@@ -2001,8 +1986,6 @@ local EntryOrder, EntryIndex = {}, {}
 		return applied
 	end
 
-	-- ConfigIndex: name -> raw file content, rebuilt by RefreshConfigList/RefreshConfigIndex.
-	-- Powers the settings-tab preview line and lets LOAD work off the same in-memory map instead of re-reading disk each keystroke.
 	local ConfigListText = "-"
 	local ConfigIndex = {}
 	local function RefreshConfigList()
@@ -2043,7 +2026,6 @@ local EntryOrder, EntryIndex = {}, {}
 		for _, l in ipairs(lines) do add(l.text, l.err and Color3.fromRGB(255,110,110) or Theme.SubText) end
 	end
 
-	---------------------------------------------------------- UI SPEC (one content list, four skins)
 	local function Sec(l) return {t = "section", l = l} end
 	local function Tog(l, k) return {t = "toggle", l = l, k = k} end
 	local function Sld(l, k, mn, mx, d) return {t = "slider", l = l, k = k, min = mn, max = mx, dec = d} end
@@ -2099,20 +2081,13 @@ local EntryOrder, EntryIndex = {}, {}
 		Sld("OPT_JUMPVALUE","JumpValue",50,300,0), Tog("OPT_FLY","FlyEnabled"), Sld("OPT_FLYSPEED","FlySpeed",20,300,0), Tog("OPT_NOCLIP","NoclipEnabled"),
 		Tog("OPT_INFJUMP","InfJumpEnabled"),
 	})
-	Tab("WORLD", "TAB_WORLD", {
+	Tab("PRESETS", "TAB_PRESETS", {
 		Sec("SEC_PRESETS"), Cho("OPT_SCENEPRESET","WorldPreset",PresetNames),
+	})
+	Tab("RENDERING", "TAB_RENDERING", {
 		Sec("SEC_RENDERING"), Tog("OPT_FULLBRIGHT","FullBrightEnabled"), Tog("OPT_NOSHADOWS","NoShadowsEnabled"), Tog("OPT_EXPOSURE","ExposureEnabled"),
 		Sld("OPT_EXPOSUREVAL","Exposure",-3,3,1), Tog("OPT_HIDECLOUDS","HideCloudsEnabled"), Tog("OPT_GRAVITY","GravityEnabled"),
 		Sld("OPT_GRAVITYVAL","GravityValue",10,400,0), Tog("OPT_HUD","HUDEnabled"),
-		Sec("SEC_CAMERA"), Tog("OPT_CUSTOMFOV","CustomFOVEnabled"), Sld("OPT_CAMERAFOV","CameraFOV",30,120,0), Tog("OPT_HOLDZOOM","ZoomEnabled"),
-		Sld("OPT_ZOOMFOV","ZoomFOV",5,60,0), Tog("OPT_FREECAM","FreecamEnabled"), Sld("OPT_FREECAMSPEED","FreecamSpeed",10,300,0),
-		Tog("OPT_ZOOMLIMIT","ZoomLimitEnabled"), Sld("OPT_MAXZOOM","ZoomLimit",10,500,0),
-		Sec("SEC_WEATHER"), Tog("OPT_SNOW","SnowEnabled"), Sld("OPT_SNOWDENSITY","SnowIntensity",5,150,0), Tog("OPT_RAIN","RainEnabled"),
-		Sld("OPT_RAINDENSITY","RainIntensity",5,200,0), Sld("OPT_WIND","WindStrength",0,30,0), Tog("OPT_FOG","FogEnabled"), Sld("OPT_FOGDIST","FogDensity",30,800,0),
-		Cho("OPT_FOGCOLOR","FogColorName",FogColorNames), Tog("OPT_LIGHTNING","LightningEnabled"), Sld("OPT_LIGHTNINGINT","LightningInterval",2,30,0),
-		Sec("SEC_ATMOSPHERE"), Tog("OPT_ATMOSPHERE","AtmosphereEnabled"), Sld("OPT_ATMODENSITY","AtmoDensity",0,1,2), Sld("OPT_ATMOHAZE","AtmoHaze",0,10,1),
-		Cho("OPT_ATMOCOLOR","AtmoColorName",FogColorNames), Tog("OPT_SUNRAYS","SunRaysEnabled"), Sld("OPT_RAYSINT","SunRaysIntensity",0,1,2),
-		Sld("OPT_RAYSSPREAD","SunRaysSpread",0,1,2), Tog("OPT_RAINBOW","RainbowEnabled"), Sld("OPT_RAINBOWSPEED","RainbowSpeed",0.02,1,2),
 		Sec("SEC_TIME"), Tog("OPT_FORCETIME","TimeOfDayEnabled"), Sld("OPT_TIMEOFDAY","TimeOfDay",0,24,1), Tog("OPT_TIMEFLOW","TimeFlowEnabled"),
 		Sld("OPT_FLOWSPEED","TimeFlowSpeed",0.02,3,2),
 		Sec("SEC_POSTFX"), Tog("OPT_GLOW","GlowEnabled"), Sld("OPT_GLOWINT","GlowIntensity",0,1,2), Sld("OPT_GLOWSIZE","GlowSize",1,56,0), Tog("OPT_COLORGRADE","ColorGradeEnabled"),
@@ -2122,7 +2097,22 @@ local EntryOrder, EntryIndex = {}, {}
 		Tog("OPT_SCREENBLUR","BlurEnabled"), Sld("OPT_BLURSIZE","BlurSize",0,40,0), Tog("OPT_VIGNETTE","VignetteEnabled"), Sld("OPT_VIGNETTEINT","VignetteIntensity",0,1,2),
 		Sec("SEC_AMBIENT"), Tog("OPT_AMBIENT","AmbientEnabled"), Cho("OPT_AMBIENTCOLOR","AmbientColorName",WorldTintNames), Sld("OPT_AMBIENTINT","AmbientIntensity",0,1,2),
 		Sec("SEC_SKY"), Tog("OPT_STARS","StarsEnabled"), Sld("OPT_STARCOUNT","StarCount",500,10000,0),
+	})
+	Tab("CAMERA", "TAB_CAMERA", {
+		Sec("SEC_CAMERA"), Tog("OPT_CUSTOMFOV","CustomFOVEnabled"), Sld("OPT_CAMERAFOV","CameraFOV",30,120,0), Tog("OPT_HOLDZOOM","ZoomEnabled"),
+		Sld("OPT_ZOOMFOV","ZoomFOV",5,60,0), Tog("OPT_FREECAM","FreecamEnabled"), Sld("OPT_FREECAMSPEED","FreecamSpeed",10,300,0),
+		Tog("OPT_ZOOMLIMIT","ZoomLimitEnabled"), Sld("OPT_MAXZOOM","ZoomLimit",10,500,0),
+	})
+	Tab("WEATHER", "TAB_WEATHER", {
+		Sec("SEC_WEATHER"), Tog("OPT_SNOW","SnowEnabled"), Sld("OPT_SNOWDENSITY","SnowIntensity",5,150,0), Tog("OPT_RAIN","RainEnabled"),
+		Sld("OPT_RAINDENSITY","RainIntensity",5,200,0), Sld("OPT_WIND","WindStrength",0,30,0), Tog("OPT_FOG","FogEnabled"), Sld("OPT_FOGDIST","FogDensity",30,800,0),
+		Cho("OPT_FOGCOLOR","FogColorName",FogColorNames), Tog("OPT_LIGHTNING","LightningEnabled"), Sld("OPT_LIGHTNINGINT","LightningInterval",2,30,0),
+		Sec("SEC_ATMOSPHERE"), Tog("OPT_ATMOSPHERE","AtmosphereEnabled"), Sld("OPT_ATMODENSITY","AtmoDensity",0,1,2), Sld("OPT_ATMOHAZE","AtmoHaze",0,10,1),
+		Cho("OPT_ATMOCOLOR","AtmoColorName",FogColorNames), Tog("OPT_SUNRAYS","SunRaysEnabled"), Sld("OPT_RAYSINT","SunRaysIntensity",0,1,2),
+		Sld("OPT_RAYSSPREAD","SunRaysSpread",0,1,2), Tog("OPT_RAINBOW","RainbowEnabled"), Sld("OPT_RAINBOWSPEED","RainbowSpeed",0.02,1,2),
 		Sec("SEC_PARTICLES"), Tog("OPT_ASH","AshEnabled"), Sld("OPT_ASHINT","AshIntensity",5,150,0),
+	})
+	Tab("CROSSHAIR", "TAB_CROSSHAIR", {
 		Sec("SEC_CROSSHAIR"), Tog("OPT_CUSTOMCROSS","CrosshairEnabled"), Sld("OPT_CROSSSIZE","CrosshairSize",2,30,0), Sld("OPT_CROSSGAP","CrosshairGap",0,20,0),
 		Sld("OPT_CROSSTHICK","CrosshairThickness",1,6,0), Tog("OPT_CENTERDOT","CrosshairDot"), Cho("OPT_CROSSCOLOR","CrosshairColorName",CrosshairColorNames),
 		Tog("OPT_SPIN","CrosshairSpin"), Tog("OPT_DYNAMICGAP","CrosshairDynamic"), Tog("OPT_REDONTARGET","CrosshairReactive"),
@@ -2162,9 +2152,6 @@ local EntryOrder, EntryIndex = {}, {}
 
 	local st = {
 		Sec("SEC_INTERFACE"),
-		-- Surfaces the same Safe()-swallow error count DEBUG's log report shows,
-		-- so a silent pcall catch (like the forward-reference crash would have been)
-		-- is visible without opening the DEBUG tab.
 		Inf("LBL_ERRORSTATUS", function()
 			local _, errs = DebugLog.Report()
 			return errs > 0 and (tostring(errs) .. " errors logged") or "clean"
@@ -2219,8 +2206,6 @@ local EntryOrder, EntryIndex = {}, {}
 	}) do table.insert(st, it) end
 	Tab("SETTINGS", "TAB_SETTINGS", st)
 
-	-- Fill ClampTable from every slider item across Spec (all gameplay tabs) and st
-	-- (settings tab) — one derivation, no separately-maintained min/max duplicate.
 	do
 		local function harvest(items)
 			for _, it in ipairs(items) do
@@ -2233,7 +2218,6 @@ local EntryOrder, EntryIndex = {}, {}
 		harvest(st)
 	end
 
-	---------------------------------------------------------- SHARED WIDGET LOGIC
 	local function Lbl(parent, it, props)
 		props.BackgroundTransparency = 1
 		local t = New("TextLabel", parent, props)
@@ -2256,6 +2240,27 @@ local EntryOrder, EntryIndex = {}, {}
 		Connect(btn.MouseButton1Click, function() step(1) end)
 		Connect(btn.MouseButton2Click, function() step(-1) end)
 		Watch(it.k, show, true)
+	end
+	local ColorSwatchKeys = {ESPColor = true, CrosshairColorName = true, ColorTintName = true, AmbientColorName = true, FogColorName = true, AtmoColorName = true}
+	local ColorSwatchLookup = {ESPColor = ESPColors, CrosshairColorName = ESPColors, ColorTintName = WorldTintColors, AmbientColorName = WorldTintColors,
+		FogColorName = WorldTintColors, AtmoColorName = WorldTintColors}
+	local function ResolveSwatchColor(key)
+		local name = S[key]
+		if name == nil then return nil end
+		if name == "Theme" then return Theme.Accent end
+		local table_ = ColorSwatchLookup[key]
+		if not table_ then return nil end
+		return table_[name]
+	end
+	local function AttachColorSwatch(it, parent, size)
+		if not it.k or not ColorSwatchKeys[it.k] then return nil end
+		local dot = Round(New("Frame", parent, {AnchorPoint = Vector2.new(1,0.5), Size = UDim2.fromOffset(size, size), BorderSizePixel = 0, ZIndex = 3}), 100)
+		New("UIStroke", dot, {Color = "@Border", Thickness = 1})
+		Watch(it.k, function()
+			local c = ResolveSwatchColor(it.k)
+			if c then dot.BackgroundColor3 = c; dot.Visible = true else dot.Visible = false end
+		end, true)
+		return dot
 	end
 	local function SliderLogic(it, hit, track, paint)
 		local get = it.get or function() return S[it.k] end
@@ -2308,105 +2313,9 @@ local EntryOrder, EntryIndex = {}, {}
 	local function BuildTab(tab, page, C)
 		local ctx = {page = page, n = 0}
 		for _, it in ipairs(tab.Items) do C[it.t](it, ctx) end
+		if C.__finish then C.__finish(ctx) end
 	end
 
-	local function InjectWorldTabs(page)
-		if not page or page:GetAttribute("VortexWorldTabs") then return end
-		page:SetAttribute("VortexWorldTabs", true)
-
-		local labels = {
-			{"WT_PRE", "SEC_PRESETS"},
-			{"WT_RENDER", "SEC_RENDERING"},
-			{"WT_CAM", "SEC_CAMERA"},
-			{"WT_WEATHER", "SEC_WEATHER"},
-			{"WT_ATMO", "SEC_ATMOSPHERE"},
-			{"WT_TIME", "SEC_TIME"},
-			{"WT_FX", "SEC_POSTFX"},
-			{"WT_CROSS", "SEC_CROSSHAIR"},
-			{"WT_HIT", "SEC_HITFX"},
-		}
-
-		local parent = page.Parent
-		if not parent then return end
-
-		local oldPos, oldSize = page.Position, page.Size
-		page.Position = UDim2.new(oldPos.X.Scale, oldPos.X.Offset, oldPos.Y.Scale, oldPos.Y.Offset + 36)
-		page.Size = UDim2.new(oldSize.X.Scale, oldSize.X.Offset, oldSize.Y.Scale, oldSize.Y.Offset - 36)
-
-		local bar = Round(New("Frame", parent, {
-			Name = "VortexWorldTabs",
-			Position = oldPos,
-			Size = UDim2.new(oldSize.X.Scale, oldSize.X.Offset, 0, 24),
-			BackgroundColor3 = "@Secondary",
-			BorderSizePixel = 0,
-			ZIndex = 20,
-			Visible = false,
-		}), 6)
-		New("UIStroke", bar, {Color = "@Border", Thickness = 1})
-		New("UIListLayout", bar, {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
-		New("UIPadding", bar, {PaddingLeft = UDim.new(0, 3), PaddingRight = UDim.new(0, 3)})
-
-		local buttons = {}
-		local function FindSectionPosition(sectionKey)
-			local wanted = Locale.T(sectionKey)
-			for _, obj in ipairs(page:GetDescendants()) do
-				if obj:IsA("TextLabel") and obj.Text == wanted then
-					return math.max(0, obj.AbsolutePosition.Y - page.AbsolutePosition.Y + page.CanvasPosition.Y - 8)
-				end
-			end
-			return nil
-		end
-
-		local function SelectButton(activeIndex)
-			for i, data in ipairs(buttons) do
-				local active = i == activeIndex
-				data.Button.BackgroundColor3 = active and Theme.Accent or Theme.Row
-				data.Button.TextColor3 = active and Theme.Background or Theme.SubText
-			end
-		end
-
-		for i, item in ipairs(labels) do
-			local b = Round(New("TextButton", bar, {
-				Size = UDim2.fromOffset(54, 18),
-				BackgroundColor3 = i == 1 and "@Accent" or "@Row",
-				TextColor3 = i == 1 and "@Background" or "@SubText",
-				Font = GOTHB,
-				TextSize = 7,
-				Text = Locale.T(item[1]),
-				AutoButtonColor = false,
-				BorderSizePixel = 0,
-				ZIndex = 21,
-			}), 5)
-			buttons[i] = {Button = b, Key = item[2]}
-			Connect(b.MouseButton1Click, function()
-				local y = FindSectionPosition(item[2])
-				if y ~= nil then
-					page.CanvasPosition = Vector2.new(0, y)
-					SelectButton(i)
-				end
-			end)
-			Locale.OnChange(function()
-				if b.Parent then b.Text = Locale.T(item[1]) end
-			end)
-		end
-
-		task.defer(function()
-			if not page.Parent then return end
-			local n = #buttons
-			local width = math.max(34, math.floor((bar.AbsoluteSize.X - 6 - 2 * (n - 1)) / n))
-			for _, data in ipairs(buttons) do data.Button.Size = UDim2.fromOffset(width, 18) end
-		end)
-
-		return {
-			SetVisible = function(state) bar.Visible = state == true end,
-			Refresh = function()
-				if not bar.Parent then return end
-				local n = #buttons
-				local width = math.max(34, math.floor((bar.AbsoluteSize.X - 6 - 2 * (n - 1)) / n))
-				for _, data in ipairs(buttons) do data.Button.Size = UDim2.fromOffset(width, 18) end
-			end,
-		}
-	end
 	local function StandardShow(root, scale, state)
 		if state then
 			root.Visible = true
@@ -2429,7 +2338,6 @@ local EntryOrder, EntryIndex = {}, {}
 		return box
 	end
 
-	---------------------------------------------------------- SKIN 1: CLASSIC (sidebar)
 	Skins.Classic = function()
 		local Root = New("CanvasGroup", MenuGui, {Name = "Main", AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(760,480),
 			BackgroundColor3 = "@Background", BorderSizePixel = 0, GroupTransparency = 1, Visible = false})
@@ -2457,9 +2365,10 @@ local EntryOrder, EntryIndex = {}, {}
 
 		local Side = New("Frame", Root, {Position = UDim2.fromOffset(0,48), Size = UDim2.fromOffset(160,432), BackgroundColor3 = "@Secondary", BorderSizePixel = 0, ZIndex = 2})
 		New("Frame", Side, {Size = UDim2.new(0,1,1,0), Position = UDim2.new(1,-1,0,0), BackgroundColor3 = "@Border", BorderSizePixel = 0, ZIndex = 2})
-		local List = New("Frame", Side, {Size = UDim2.new(1,0,1,-30), BackgroundTransparency = 1})
+		local List = New("ScrollingFrame", Side, {Size = UDim2.new(1,0,1,-30), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 3, ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
 		New("UIListLayout", List, {Padding = UDim.new(0,4), SortOrder = Enum.SortOrder.LayoutOrder})
-		New("UIPadding", List, {PaddingTop = UDim.new(0,8), PaddingLeft = UDim.new(0,8)})
+		New("UIPadding", List, {PaddingTop = UDim.new(0,8), PaddingLeft = UDim.new(0,8), PaddingRight = UDim.new(0,6)})
 		local hint = New("TextLabel", Side, {AnchorPoint = Vector2.new(0,1), Position = UDim2.new(0,14,1,-10), Size = UDim2.new(1,-28,0,14), BackgroundTransparency = 1,
 			TextColor3 = "@Muted", Font = GOTHM, TextSize = 9, TextXAlignment = LEFT, ZIndex = 4})
 		local function PaintHint() hint.Text = Locale.T("MENU_KEY") .. "  " .. KeyName(K.Menu) end
@@ -2467,10 +2376,8 @@ local EntryOrder, EntryIndex = {}, {}
 		local Content = New("Frame", Root, {Position = UDim2.fromOffset(160,48), Size = UDim2.new(1,-160,1,-48), BackgroundTransparency = 1, ClipsDescendants = true})
 
 		local Pages, Btns, Active = {}, {}, nil
-		local WorldTabsController = nil
 		local function Select(name)
 			Active = name
-			if WorldTabsController then WorldTabsController.SetVisible(name == "WORLD") end
 			for n, p in pairs(Pages) do p.Visible = n == name end
 			for n, b in pairs(Btns) do
 				Tween(b.Bg, {BackgroundTransparency = n == name and 0 or 1}, 0.15)
@@ -2483,7 +2390,9 @@ local EntryOrder, EntryIndex = {}, {}
 		local C = {}
 		local function row(c, h, click)
 			c.n += 1
-			local r = New(click and "TextButton" or "Frame", c.page, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BorderSizePixel = 0, LayoutOrder = c.n})
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
 			if click then r.Text = ""; r.AutoButtonColor = false end
 			Round(r, 8)
 			local s = New("UIStroke", r, {Color = "@Border", Thickness = 1, Transparency = 0.3})
@@ -2494,13 +2403,22 @@ local EntryOrder, EntryIndex = {}, {}
 		local function rl(r, it, w) return Lbl(r, it, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,w or -170,1,0), TextColor3 = "@Text", Font = GOTHM, TextSize = 12, TextXAlignment = LEFT}) end
 		function C.section(it, c)
 			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,22), BackgroundTransparency = 1, LayoutOrder = c.n})
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,22), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
 			Round(New("Frame", h, {Size = UDim2.fromOffset(3,12), Position = UDim2.fromOffset(2,5), BackgroundColor3 = "@Accent", BorderSizePixel = 0}), 2)
-			Lbl(h, it, {Position = UDim2.fromOffset(12,0), Size = UDim2.new(1,-12,1,0), TextColor3 = "@SubText", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+			Lbl(h, it, {Position = UDim2.fromOffset(12,0), Size = UDim2.new(1,-28,1,0), TextColor3 = "@SubText", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-4,0.5,0), Size = UDim2.fromOffset(16,16), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Muted", Font = GOTHB, TextSize = 10})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
 		end
 		function C.label(it, c)
 			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, LayoutOrder = c.n})
+			local parent = c.group or c.page
+			local h = New("Frame", parent, {Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
 			Lbl(h, it, {Position = UDim2.fromOffset(2,0), Size = UDim2.new(1,-4,1,0), TextColor3 = "@SubText", Font = GOTHM, TextSize = 11, TextXAlignment = LEFT})
 		end
 		function C.toggle(it, c)
@@ -2588,7 +2506,6 @@ local EntryOrder, EntryIndex = {}, {}
 			Btns[tab.Key] = {Bg = b, Bar = bar, Label = lab}
 			Connect(b.MouseButton1Click, function() Select(tab.Key) end)
 			BuildTab(tab, page, C)
-			if tab.Key == "WORLD" then WorldTabsController = InjectWorldTabs(page) end
 		end
 		Select(Spec[1].Key)
 		return {
@@ -2599,7 +2516,6 @@ local EntryOrder, EntryIndex = {}, {}
 		}
 	end
 
-	---------------------------------------------------------- SKIN 2: WINDOWS (floating draggable collapsible panels)
 	Skins.Windows = function()
 		local Holder = New("Frame", MenuGui, {Name = "Main", Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Visible = false})
 		local Wins = {}
@@ -2611,15 +2527,24 @@ local EntryOrder, EntryIndex = {}, {}
 		local C = {}
 		local function row(c, h, click, color)
 			c.n += 1
-			local r = New(click and "TextButton" or "Frame", c.page, {Size = UDim2.new(1,-8,0,h), BackgroundColor3 = color or "@Row", BorderSizePixel = 0, LayoutOrder = c.n})
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,-8,0,h), BackgroundColor3 = color or "@Row", BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
 			if click then r.Text = ""; r.AutoButtonColor = false end
 			return Round(r, 5)
 		end
 		function C.section(it, c)
 			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,-8,0,20), BackgroundTransparency = 1, LayoutOrder = c.n})
-			Lbl(h, it, P{Size = UDim2.new(1,0,1,-3), TextColor3 = "@Accent", Font = GOTHB, TextSize = 10})
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,-8,0,20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			Lbl(h, it, P{Size = UDim2.new(1,-16,1,-3), TextColor3 = "@Accent", Font = GOTHB, TextSize = 10})
 			New("Frame", h, {Position = UDim2.new(0,0,1,-2), Size = UDim2.new(1,0,0,1), BackgroundColor3 = "@Border", BorderSizePixel = 0})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,0,0,-3), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Accent", Font = GOTHB, TextSize = 9})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,3), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
 		end
 		function C.label(it, c) local r = row(c, 18, false, "@Background"); Lbl(r, it, P{Size = UDim2.new(1,0,1,0), TextColor3 = "@SubText"}) end
 		function C.toggle(it, c)
@@ -2716,7 +2641,6 @@ local EntryOrder, EntryIndex = {}, {}
 		}
 	end
 
-	---------------------------------------------------------- SKIN 3: DOCK (bottom pill + tile-grid panel)
 	Skins.Dock = function()
 		local Root = New("Frame", MenuGui, {Name = "Main", AnchorPoint = Vector2.new(0.5,1), Position = UDim2.new(0.5,0,1,-14), Size = UDim2.fromOffset(660,490), BackgroundTransparency = 1, Visible = false})
 		local Scale = New("UIScale", Root, {Scale = S.UIScale})
@@ -2771,6 +2695,7 @@ local EntryOrder, EntryIndex = {}, {}
 			local r = New(click and "TextButton" or "Frame", c.page, {Size = size, BackgroundColor3 = color or "@Row", BorderSizePixel = 0, LayoutOrder = c.n})
 			if click then r.Text = ""; r.AutoButtonColor = false end
 			Round(r, 10)
+			if c.sectionTiles then table.insert(c.sectionTiles, r) end
 			return r
 		end
 		local function tl(r, it, props)
@@ -2778,16 +2703,41 @@ local EntryOrder, EntryIndex = {}, {}
 			for k, v in pairs(props) do base[k] = v end
 			return Lbl(r, it, base)
 		end
-		function C.section(it, c)
-			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,26), BackgroundTransparency = 1, LayoutOrder = c.n})
-			tl(h, it, {Size = UDim2.new(1,0,1,-6), TextColor3 = "@Accent", Font = GOTHB, TextSize = 11})
-			New("Frame", h, {Position = UDim2.new(0,0,1,-2), Size = UDim2.new(1,0,0,1), BackgroundColor3 = "@Border", BorderSizePixel = 0})
+		local function WireSection(c)
+			if not (c.sectionHeader and c.sectionTiles) then return end
+			local header, tiles, chevron = c.sectionHeader, c.sectionTiles, c.sectionChevron
+			local collapsed = false
+			local hovering = false
+			local function Paint()
+				for _, t in ipairs(tiles) do t.Visible = not collapsed end
+				if chevron then Tween(chevron, {Rotation = collapsed and -90 or 0}, 0.15) end
+			end
+			Connect(header.MouseEnter, function() hovering = true end)
+			Connect(header.MouseLeave, function() hovering = false end)
+			Connect(UserInputService.InputChanged, function(input)
+				if not hovering or input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+				local up = input.Position.Z > 0
+				if up and not collapsed then collapsed = true; Paint()
+				elseif (not up) and collapsed then collapsed = false; Paint() end
+			end)
+			c.sectionHeader, c.sectionChevron, c.sectionTiles = nil, nil, nil
 		end
+		function C.section(it, c)
+			WireSection(c)
+			c.n += 1
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,26), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			tl(h, it, {Size = UDim2.new(1,-20,1,-6), TextColor3 = "@Accent", Font = GOTHB, TextSize = 11})
+			New("Frame", h, {Position = UDim2.new(0,0,1,-2), Size = UDim2.new(1,0,0,1), BackgroundColor3 = "@Border", BorderSizePixel = 0})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-4,0,4), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Accent", Font = GOTHB, TextSize = 10})
+			c.sectionHeader, c.sectionChevron, c.sectionTiles = h, chevron, {}
+		end
+		C.__finish = WireSection
 		function C.label(it, c)
 			c.n += 1
 			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, LayoutOrder = c.n})
 			tl(h, it, {Size = UDim2.fromScale(1,1), TextColor3 = "@SubText"})
+			if c.sectionTiles then table.insert(c.sectionTiles, h) end
 		end
 		function C.toggle(it, c)
 			local r = tile(c, 46, HALF, true)
@@ -2862,7 +2812,6 @@ local EntryOrder, EntryIndex = {}, {}
 			Btns[tab.Key] = {Btn = b, Label = lab}
 			Connect(b.MouseButton1Click, function() Select(tab.Key) end)
 			BuildTab(tab, page, C)
-			if tab.Key == "WORLD" then WorldTabsController = InjectWorldTabs(page) end
 		end
 		Select(Spec[1].Key)
 		return {
@@ -2879,7 +2828,6 @@ local EntryOrder, EntryIndex = {}, {}
 		}
 	end
 
-	---------------------------------------------------------- SKIN 4: TERMINAL (monospace console, square, text-only)
 	Skins.Terminal = function()
 		local Root = New("CanvasGroup", MenuGui, {Name = "Main", AnchorPoint = Vector2.new(0.5,0), Position = UDim2.new(0.5,0,0,24), Size = UDim2.fromOffset(820,470),
 			BackgroundColor3 = "@Background", BorderSizePixel = 0, GroupTransparency = 1, Visible = false})
@@ -2905,10 +2853,8 @@ local EntryOrder, EntryIndex = {}, {}
 		local Content = New("Frame", Root, {Position = UDim2.fromOffset(0,50), Size = UDim2.new(1,0,1,-68), BackgroundTransparency = 1, ClipsDescendants = true})
 
 		local Pages, Btns, Active = {}, {}, nil
-		local WorldTabsController = nil
 		local function Select(name)
 			Active = name
-			if WorldTabsController then WorldTabsController.SetVisible(name == "WORLD") end
 			for n, p in pairs(Pages) do p.Visible = n == name end
 			for n, b in pairs(Btns) do
 				b.Btn.BackgroundTransparency = n == name and 0 or 1
@@ -2921,7 +2867,9 @@ local EntryOrder, EntryIndex = {}, {}
 		local C = {}
 		local function row(c, h, click)
 			c.n += 1
-			local r = New(click and "TextButton" or "Frame", c.page, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = c.n})
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
 			if click then r.Text = ""; r.AutoButtonColor = false end
 			Connect(r.MouseEnter, function() Tween(r, {BackgroundTransparency = 0.55}, 0.1) end)
 			Connect(r.MouseLeave, function() Tween(r, {BackgroundTransparency = 1}, 0.1) end)
@@ -2938,13 +2886,22 @@ local EntryOrder, EntryIndex = {}, {}
 		end
 		function C.section(it, c)
 			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,22), BackgroundTransparency = 1, LayoutOrder = c.n})
-			tl(h, it, {Position = UDim2.fromOffset(10,4), Size = UDim2.new(1,-10,0,16), TextColor3 = "@Accent", TextSize = 12})
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,22), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			tl(h, it, {Position = UDim2.fromOffset(10,4), Size = UDim2.new(1,-26,0,16), TextColor3 = "@Accent", TextSize = 12})
 			New("Frame", h, {Position = UDim2.new(0,10,1,-1), Size = UDim2.new(1,-20,0,1), BackgroundColor3 = "@Border", BorderSizePixel = 0})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-10,0,4), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Accent", Font = CODE, TextSize = 11})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,1), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
 		end
 		function C.label(it, c)
 			c.n += 1
-			local h = New("Frame", c.page, {Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, LayoutOrder = c.n})
+			local parent = c.group or c.page
+			local h = New("Frame", parent, {Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
 			tl(h, it, {Position = UDim2.fromOffset(10,0), Size = UDim2.new(1,-20,1,0), TextColor3 = "@SubText", TextSize = 11})
 		end
 		function C.toggle(it, c)
@@ -3020,7 +2977,6 @@ local EntryOrder, EntryIndex = {}, {}
 			Btns[tab.Key] = {Btn = b}
 			Connect(b.MouseButton1Click, function() Select(tab.Key) end)
 			BuildTab(tab, page, C)
-			if tab.Key == "WORLD" then WorldTabsController = InjectWorldTabs(page) end
 		end
 		Select(Spec[1].Key)
 		return {
@@ -3031,7 +2987,521 @@ local EntryOrder, EntryIndex = {}, {}
 		}
 	end
 
-	---------------------------------------------------------- UNLOAD
+	Skins.Notch = function()
+		local Root = New("Frame", MenuGui, {Name = "Main", AnchorPoint = Vector2.new(0.5,0), Position = UDim2.new(0.5,0,0,10), Size = UDim2.fromOffset(560,400), BackgroundTransparency = 1, Visible = false})
+		local Scale = New("UIScale", Root, {Scale = 0.92})
+		local Pill = Round(New("CanvasGroup", Root, {AnchorPoint = Vector2.new(0.5,0), Position = UDim2.fromScale(0.5,0), Size = UDim2.fromOffset(0,40),
+			AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = "@Background", BorderSizePixel = 0}), 20)
+		local glow = GlowStroke(Pill)
+		local PillList = New("Frame", Pill, {Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X})
+		New("UIListLayout", PillList, {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,4), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder})
+		New("UIPadding", PillList, {PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10)})
+		Locale.Bind(New("TextLabel", PillList, {Size = UDim2.fromOffset(60,40), BackgroundTransparency = 1, TextColor3 = "@Text", Font = GOTHB, TextSize = 12, TextXAlignment = LEFT, LayoutOrder = 0}), "APP_NAME")
+		local closeBtn = Round(New("TextButton", PillList, {Size = UDim2.fromOffset(24,24), BackgroundColor3 = "@Row", Text = "X", TextColor3 = Color3.fromRGB(255,90,100),
+			Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = 1000}), 12)
+		Connect(closeBtn.MouseButton1Click, function() DebugLog.Push("system", "close pressed, unloading"); Unload() end)
+		Draggable(Pill, Root)
+
+		local Sheet = Round(New("CanvasGroup", Root, {AnchorPoint = Vector2.new(0.5,0), Position = UDim2.new(0.5,0,0,46), Size = UDim2.fromOffset(520,0),
+			BackgroundColor3 = "@Secondary", BorderSizePixel = 0, ClipsDescendants = true, Visible = false, GroupTransparency = 1}), 16)
+		New("UIStroke", Sheet, {Color = "@Border", Thickness = 1})
+		local SheetHead = New("Frame", Sheet, {Size = UDim2.new(1,0,0,30), BackgroundTransparency = 1})
+		local sheetTitle = New("TextLabel", SheetHead, {Position = UDim2.fromOffset(12,0), Size = UDim2.new(1,-40,1,0), BackgroundTransparency = 1, TextColor3 = "@Accent", Font = GOTHB, TextSize = 12, TextXAlignment = LEFT})
+		local Page = New("ScrollingFrame", Sheet, {Position = UDim2.fromOffset(10,32), Size = UDim2.new(1,-20,1,-40), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 3, ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+		New("UIListLayout", Page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+		New("UIPadding", Page, {PaddingBottom = UDim.new(0,10), PaddingRight = UDim.new(0,4)})
+
+		local Pages, Btns, Active, Open = {}, {}, nil, false
+		local function CloseSheet()
+			Open = false
+			Tween(Sheet, {Size = UDim2.fromOffset(520,0), GroupTransparency = 1}, 0.18)
+			task.delay(0.19, function() if not Open then Sheet.Visible = false end end)
+		end
+		local function OpenSheet(name)
+			Active = name
+			for n, p in pairs(Pages) do p.Visible = n == name end
+			for n, b in pairs(Btns) do Tween(b.Bg, {BackgroundColor3 = n == name and Theme.Accent or Theme.Row}, 0.15) end
+			for _, t in ipairs(Spec) do if t.Key == name then sheetTitle.Text = Locale.T(t.Locale) end end
+			Sheet.Visible = true; Open = true
+			Tween(Sheet, {Size = UDim2.fromOffset(520,300), GroupTransparency = 0}, 0.2)
+		end
+		local function Toggle(name)
+			if Open and Active == name then CloseSheet() else OpenSheet(name) end
+		end
+		table.insert(Refreshers, function() if Open and Active then for _, t in ipairs(Spec) do if t.Key == Active then sheetTitle.Text = Locale.T(t.Locale) end end end end)
+
+		local C = {}
+		local function row(c, h, click)
+			c.n += 1
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			if click then r.Text = ""; r.AutoButtonColor = false end
+			return Round(r, 8)
+		end
+		local function rl(r, it, w) return Lbl(r, it, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,w or -170,1,0), TextColor3 = "@Text", Font = GOTHM, TextSize = 12, TextXAlignment = LEFT}) end
+		function C.section(it, c)
+			c.n += 1
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			Lbl(h, it, {Position = UDim2.fromOffset(2,0), Size = UDim2.new(1,-20,1,0), TextColor3 = "@Accent", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-2,0.5,0), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Muted", Font = GOTHB, TextSize = 9})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,6), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
+		end
+		function C.label(it, c)
+			c.n += 1
+			local parent = c.group or c.page
+			local h = New("Frame", parent, {Size = UDim2.new(1,0,0,16), BackgroundTransparency = 1, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			Lbl(h, it, {Size = UDim2.new(1,0,1,0), TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+		function C.toggle(it, c)
+			local r = row(c, 34, true); rl(r, it, -60)
+			local track = Round(New("Frame", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(32,17), BorderSizePixel = 0}), 100)
+			local knob = Round(New("Frame", track, {AnchorPoint = Vector2.new(0,0.5), Size = UDim2.fromOffset(12,12), BorderSizePixel = 0}), 100)
+			ToggleLogic(it, r, function(on)
+				Tween(track, {BackgroundColor3 = on and Theme.Accent or Theme.Background}, 0.15)
+				Tween(knob, {Position = on and UDim2.new(1,-14,0.5,0) or UDim2.new(0,3,0.5,0), BackgroundColor3 = on and Theme.Background or Theme.Muted}, 0.15)
+			end)
+		end
+		function C.slider(it, c)
+			local r = row(c, 46)
+			Lbl(r, it, {Position = UDim2.fromOffset(12,6), Size = UDim2.new(1,-90,0,14), TextColor3 = "@Text", Font = GOTHM, TextSize = 11, TextXAlignment = LEFT})
+			local val = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-12,0,6), Size = UDim2.fromOffset(70,14), BackgroundTransparency = 1, TextColor3 = "@SubText", Font = GOTHB, TextSize = 10, TextXAlignment = RIGHT})
+			local track = Round(New("Frame", r, {Position = UDim2.fromOffset(12,30), Size = UDim2.new(1,-24,0,4), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 100)
+			local fill = Round(New("Frame", track, {Size = UDim2.fromScale(0,1), BackgroundColor3 = "@Accent", BorderSizePixel = 0}), 100)
+			SliderLogic(it, r, track, function(a, txt) Tween(fill, {Size = UDim2.fromScale(a,1)}, 0.08); val.Text = txt end)
+		end
+		local function sideBtn(r)
+			local b = Round(New("TextButton", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(110,22), BackgroundColor3 = "@Background",
+				Text = "", TextColor3 = "@Text", Font = GOTHB, TextSize = 10, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			return b
+		end
+		function C.choice(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			local sw = AttachColorSwatch(it, r, 14)
+			if sw then sw.Position = UDim2.new(1,-128,0.5,0) end
+			ChoiceLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.bind(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			BindLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.action(it, c)
+			local r = row(c, 32)
+			local b = Round(New("TextButton", r, {Position = UDim2.fromOffset(8,4), Size = UDim2.new(1,-16,1,-8), BackgroundColor3 = "@Accent", TextColor3 = "@Background",
+				Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			Locale.Bind(b, it.l)
+			Connect(b.MouseButton1Click, it.fn)
+		end
+		function C.input(it, c)
+			local r = row(c, it.h)
+			local box = Round(MakeInput(r, it, {Position = UDim2.fromOffset(10,6), Size = UDim2.new(1,-20,1,-12), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 6)
+			New("UIPadding", box, {PaddingLeft = UDim.new(0,8), PaddingRight = UDim.new(0,8)})
+		end
+		function C.info(it, c)
+			local r = row(c, 32); rl(r, it, -220)
+			local v = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(200,18), BackgroundTransparency = 1,
+				TextColor3 = "@SubText", Font = GOTHB, TextSize = 11, TextXAlignment = RIGHT, TextTruncate = Enum.TextTruncate.AtEnd})
+			InfoReg(v, it)
+		end
+		function C.log(it, c)
+			local r = row(c, 240)
+			local s = New("ScrollingFrame", r, {Position = UDim2.fromOffset(8,8), Size = UDim2.new(1,-16,1,-16), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+				ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+			New("UIListLayout", s, {Padding = UDim.new(0,1), SortOrder = Enum.SortOrder.LayoutOrder})
+			Widgets.log = s
+		end
+		function C.avatar(it, c)
+			local r = row(c, 64)
+			local img = MakeAvatar(r, 46); img.Position = UDim2.fromOffset(9,9)
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,14), Size = UDim2.new(1,-70,0,18), BackgroundTransparency = 1, Text = LocalPlayer.Name, TextColor3 = "@Text", Font = GOTHB, TextSize = 13, TextXAlignment = LEFT})
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,32), Size = UDim2.new(1,-70,0,14), BackgroundTransparency = 1, Text = "@" .. LocalPlayer.DisplayName, TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+
+		for i, tab in ipairs(Spec) do
+			local page = New("ScrollingFrame", Page, {Name = tab.Key, Size = UDim2.new(1,0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0,
+				Visible = false, CanvasSize = UDim2.new(), AutomaticSize = Enum.AutomaticSize.Y, ScrollBarThickness = 0})
+			New("UIListLayout", page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+			Pages[tab.Key] = page
+			local b = Round(New("TextButton", PillList, {Size = UDim2.fromOffset(30,30), BackgroundColor3 = "@Row", Text = "", AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i}), 10)
+			local lab = New("TextLabel", b, {Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, TextColor3 = "@SubText", Font = GOTHB, TextSize = 9, TextXAlignment = CENTER, TextTruncate = Enum.TextTruncate.AtEnd})
+			lab.Text = tostring(i)
+			Btns[tab.Key] = {Bg = b}
+			Connect(b.MouseButton1Click, function() Toggle(tab.Key) end)
+			BuildTab(tab, page, C)
+		end
+
+		return {
+			Show = function(state)
+				if state then Root.Visible = true end
+				Tween(Scale, {Scale = state and S.UIScale or S.UIScale * 0.9}, 0.25, Enum.EasingStyle.Back)
+				Tween(Pill, {GroupTransparency = state and S.UIOpacity or 1}, 0.2)
+				if not state then CloseSheet(); task.delay(0.22, function() if not MenuState.Open and Root.Parent then Root.Visible = false end end) end
+			end,
+			Scale = function(v) Scale.Scale = v end,
+			Opacity = function(v) if MenuState.Open then Pill.GroupTransparency = v end end,
+			Destroy = function() glow:Cancel() end,
+		}
+	end
+
+	Skins.HUDStrip = function()
+		local Root = New("Frame", MenuGui, {Name = "Main", Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Visible = false})
+		local Strip = Round(New("CanvasGroup", Root, {AnchorPoint = Vector2.new(0.5,1), Position = UDim2.new(0.5,0,1,-14), Size = UDim2.fromOffset(680,36),
+			BackgroundColor3 = "@Background", BorderSizePixel = 0, GroupTransparency = 1}), 10)
+		local glow = GlowStroke(Strip)
+		local StripScale = New("UIScale", Strip, {Scale = 0.95})
+		local List = New("Frame", Strip, {Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1})
+		New("UIListLayout", List, {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,2), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder})
+		New("UIPadding", List, {PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10)})
+		Draggable(Strip, Strip)
+
+		local function LiveField(w)
+			return New("TextLabel", List, {Size = UDim2.fromOffset(w,36), BackgroundTransparency = 1, TextColor3 = "@SubText", Font = CODE, TextSize = 11, TextXAlignment = LEFT})
+		end
+		local fpsF, pingF, aimF, trigF = LiveField(56), LiveField(70), LiveField(60), LiveField(64)
+		New("Frame", List, {Size = UDim2.fromOffset(1,18), BackgroundColor3 = "@Border", BorderSizePixel = 0})
+		local closeBtn = Round(New("TextButton", List, {Size = UDim2.fromOffset(24,24), BackgroundColor3 = "@Row", Text = "X", TextColor3 = Color3.fromRGB(255,90,100),
+			Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = 1000}), 12)
+		Connect(closeBtn.MouseButton1Click, function() DebugLog.Push("system", "close pressed, unloading"); Unload() end)
+
+		local hudAccum, hudFrames = 0, 0
+		Connect(RunService.RenderStepped, function(dt)
+			if Unloaded or not Strip.Parent then return end
+			hudAccum += dt; hudFrames += 1
+			if hudAccum >= 0.25 then
+				fpsF.Text = "FPS " .. math.floor(hudFrames / hudAccum + 0.5)
+				hudAccum, hudFrames = 0, 0
+			end
+			local ok, v = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
+			pingF.Text = "PING " .. (ok and math.floor(v) or 0)
+			aimF.Text = "AIM " .. (S.AimbotEnabled and (Aim.Player and "LOCK" or "ON") or "OFF")
+			aimF.TextColor3 = S.AimbotEnabled and (Aim.Player and Color3.fromRGB(255,90,100) or Theme.Accent) or Theme.Muted
+			trigF.Text = "TRG " .. (S.TriggerEnabled and (Trigger.Player and "LOCK" or "ON") or "OFF")
+			trigF.TextColor3 = S.TriggerEnabled and (Trigger.Player and Color3.fromRGB(255,90,100) or Theme.Accent) or Theme.Muted
+		end)
+
+		local Panel = Round(New("CanvasGroup", Root, {AnchorPoint = Vector2.new(0.5,1), Position = UDim2.new(0.5,0,1,-58), Size = UDim2.fromOffset(520,0),
+			BackgroundColor3 = "@Secondary", BorderSizePixel = 0, ClipsDescendants = true, Visible = false, GroupTransparency = 1}), 14)
+		New("UIStroke", Panel, {Color = "@Border", Thickness = 1})
+		local PanelHead = New("Frame", Panel, {AnchorPoint = Vector2.new(0,1), Position = UDim2.new(0,0,1,0), Size = UDim2.new(1,0,0,28), BackgroundTransparency = 1})
+		local panelTitle = New("TextLabel", PanelHead, {Position = UDim2.fromOffset(12,0), Size = UDim2.new(1,-30,1,0), BackgroundTransparency = 1, TextColor3 = "@Accent", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+		local Page = New("ScrollingFrame", Panel, {AnchorPoint = Vector2.new(0,1), Position = UDim2.new(0,10,1,-30), Size = UDim2.new(1,-20,1,-40), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 3, ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+		New("UIListLayout", Page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+		New("UIPadding", Page, {PaddingBottom = UDim.new(0,8), PaddingRight = UDim.new(0,4)})
+
+		local Pages, Segs, Active, PanelOpen = {}, {}, nil, false
+		local function ClosePanel()
+			PanelOpen = false
+			Tween(Panel, {Size = UDim2.fromOffset(520,0), GroupTransparency = 1}, 0.18)
+			task.delay(0.19, function() if not PanelOpen then Panel.Visible = false end end)
+			for _, b in pairs(Segs) do Tween(b, {BackgroundColor3 = Theme.Row}, 0.15) end
+		end
+		local function OpenPanel(name)
+			Active = name
+			for n, p in pairs(Pages) do p.Visible = n == name end
+			for n, b in pairs(Segs) do Tween(b, {BackgroundColor3 = n == name and Theme.Accent or Theme.Row}, 0.15) end
+			for _, t in ipairs(Spec) do if t.Key == name then panelTitle.Text = Locale.T(t.Locale) end end
+			Panel.Visible = true; PanelOpen = true
+			Tween(Panel, {Size = UDim2.fromOffset(520, 360), GroupTransparency = 0}, 0.2)
+		end
+		local function Toggle(name)
+			if PanelOpen and Active == name then ClosePanel() else OpenPanel(name) end
+		end
+		table.insert(Refreshers, function() if PanelOpen and Active then for _, t in ipairs(Spec) do if t.Key == Active then panelTitle.Text = Locale.T(t.Locale) end end end end)
+
+		local C = {}
+		local function row(c, h, click)
+			c.n += 1
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			if click then r.Text = ""; r.AutoButtonColor = false end
+			return Round(r, 8)
+		end
+		local function rl(r, it, w) return Lbl(r, it, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,w or -170,1,0), TextColor3 = "@Text", Font = GOTHM, TextSize = 12, TextXAlignment = LEFT}) end
+		function C.section(it, c)
+			c.n += 1
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			Lbl(h, it, {Position = UDim2.fromOffset(2,0), Size = UDim2.new(1,-20,1,0), TextColor3 = "@Accent", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-2,0.5,0), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Muted", Font = GOTHB, TextSize = 9})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,6), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
+		end
+		function C.label(it, c)
+			c.n += 1
+			local parent = c.group or c.page
+			local h = New("Frame", parent, {Size = UDim2.new(1,0,0,16), BackgroundTransparency = 1, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			Lbl(h, it, {Size = UDim2.new(1,0,1,0), TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+		function C.toggle(it, c)
+			local r = row(c, 34, true); rl(r, it, -60)
+			local track = Round(New("Frame", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(32,17), BorderSizePixel = 0}), 100)
+			local knob = Round(New("Frame", track, {AnchorPoint = Vector2.new(0,0.5), Size = UDim2.fromOffset(12,12), BorderSizePixel = 0}), 100)
+			ToggleLogic(it, r, function(on)
+				Tween(track, {BackgroundColor3 = on and Theme.Accent or Theme.Background}, 0.15)
+				Tween(knob, {Position = on and UDim2.new(1,-14,0.5,0) or UDim2.new(0,3,0.5,0), BackgroundColor3 = on and Theme.Background or Theme.Muted}, 0.15)
+			end)
+		end
+		function C.slider(it, c)
+			local r = row(c, 46)
+			Lbl(r, it, {Position = UDim2.fromOffset(12,6), Size = UDim2.new(1,-90,0,14), TextColor3 = "@Text", Font = GOTHM, TextSize = 11, TextXAlignment = LEFT})
+			local val = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-12,0,6), Size = UDim2.fromOffset(70,14), BackgroundTransparency = 1, TextColor3 = "@SubText", Font = GOTHB, TextSize = 10, TextXAlignment = RIGHT})
+			local track = Round(New("Frame", r, {Position = UDim2.fromOffset(12,30), Size = UDim2.new(1,-24,0,4), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 100)
+			local fill = Round(New("Frame", track, {Size = UDim2.fromScale(0,1), BackgroundColor3 = "@Accent", BorderSizePixel = 0}), 100)
+			SliderLogic(it, r, track, function(a, txt) Tween(fill, {Size = UDim2.fromScale(a,1)}, 0.08); val.Text = txt end)
+		end
+		local function sideBtn(r)
+			local b = Round(New("TextButton", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(110,22), BackgroundColor3 = "@Background",
+				Text = "", TextColor3 = "@Text", Font = GOTHB, TextSize = 10, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			return b
+		end
+		function C.choice(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			local sw = AttachColorSwatch(it, r, 14)
+			if sw then sw.Position = UDim2.new(1,-128,0.5,0) end
+			ChoiceLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.bind(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			BindLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.action(it, c)
+			local r = row(c, 32)
+			local b = Round(New("TextButton", r, {Position = UDim2.fromOffset(8,4), Size = UDim2.new(1,-16,1,-8), BackgroundColor3 = "@Accent", TextColor3 = "@Background",
+				Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			Locale.Bind(b, it.l)
+			Connect(b.MouseButton1Click, it.fn)
+		end
+		function C.input(it, c)
+			local r = row(c, it.h)
+			local box = Round(MakeInput(r, it, {Position = UDim2.fromOffset(10,6), Size = UDim2.new(1,-20,1,-12), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 6)
+			New("UIPadding", box, {PaddingLeft = UDim.new(0,8), PaddingRight = UDim.new(0,8)})
+		end
+		function C.info(it, c)
+			local r = row(c, 32); rl(r, it, -220)
+			local v = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(200,18), BackgroundTransparency = 1,
+				TextColor3 = "@SubText", Font = GOTHB, TextSize = 11, TextXAlignment = RIGHT, TextTruncate = Enum.TextTruncate.AtEnd})
+			InfoReg(v, it)
+		end
+		function C.log(it, c)
+			local r = row(c, 240)
+			local s = New("ScrollingFrame", r, {Position = UDim2.fromOffset(8,8), Size = UDim2.new(1,-16,1,-16), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+				ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+			New("UIListLayout", s, {Padding = UDim.new(0,1), SortOrder = Enum.SortOrder.LayoutOrder})
+			Widgets.log = s
+		end
+		function C.avatar(it, c)
+			local r = row(c, 64)
+			local img = MakeAvatar(r, 46); img.Position = UDim2.fromOffset(9,9)
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,14), Size = UDim2.new(1,-70,0,18), BackgroundTransparency = 1, Text = LocalPlayer.Name, TextColor3 = "@Text", Font = GOTHB, TextSize = 13, TextXAlignment = LEFT})
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,32), Size = UDim2.new(1,-70,0,14), BackgroundTransparency = 1, Text = "@" .. LocalPlayer.DisplayName, TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+
+		for i, tab in ipairs(Spec) do
+			local page = New("Frame", Page, {Name = tab.Key, Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Visible = false})
+			New("UIListLayout", page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+			Pages[tab.Key] = page
+			local b = Round(New("TextButton", List, {Size = UDim2.fromOffset(30,28), BackgroundColor3 = "@Row", Text = tostring(i), TextColor3 = "@SubText",
+				Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = i + 10}), 8)
+			Segs[tab.Key] = b
+			Connect(b.MouseButton1Click, function() Toggle(tab.Key) end)
+			BuildTab(tab, page, C)
+		end
+
+		return {
+			Show = function(state)
+				if state then Root.Visible = true end
+				Tween(StripScale, {Scale = state and 1 or 0.95}, 0.22, Enum.EasingStyle.Back)
+				Tween(Strip, {GroupTransparency = state and S.UIOpacity or 1}, 0.2)
+				if not state then ClosePanel(); task.delay(0.22, function() if not MenuState.Open and Root.Parent then Root.Visible = false end end) end
+			end,
+			Scale = function(v) StripScale.Scale = v end,
+			Opacity = function(v) if MenuState.Open then Strip.GroupTransparency = v end end,
+			Destroy = function() glow:Cancel() end,
+		}
+	end
+
+	Skins.Radial = function()
+		local Root = New("Frame", MenuGui, {Name = "Main", AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.28,0.5), Size = UDim2.fromOffset(720,420), BackgroundTransparency = 1, Visible = false})
+		local RingHolder = New("Frame", Root, {AnchorPoint = Vector2.new(0,0.5), Position = UDim2.fromOffset(0,210), Size = UDim2.fromOffset(220,220), BackgroundTransparency = 1})
+		local RingScale = New("UIScale", RingHolder, {Scale = 0.9})
+		local Ring = Round(New("CanvasGroup", RingHolder, {Size = UDim2.fromOffset(220,220), BackgroundColor3 = "@Background", BorderSizePixel = 0, GroupTransparency = 1}), 100)
+		local glow = GlowStroke(Ring)
+		local Center = Round(New("Frame", Ring, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(68,68), BackgroundColor3 = "@Secondary", BorderSizePixel = 0, ZIndex = 3}), 100)
+		New("UIStroke", Center, {Color = "@Border", Thickness = 1})
+		Locale.Bind(New("TextLabel", Center, {Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, TextColor3 = "@Text", Font = GOTHB, TextSize = 12, ZIndex = 3}), "APP_NAME")
+		local closeBtn = Round(New("TextButton", Ring, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(20,20),
+			BackgroundColor3 = "@Row", Text = "", AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 4, Visible = false}), 100)
+		New("TextLabel", closeBtn, {Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Text = "X", TextColor3 = Color3.fromRGB(255,90,100), Font = GOTHB, TextSize = 11})
+		Draggable(Center, RingHolder)
+
+		local Panel = Round(New("CanvasGroup", Root, {AnchorPoint = Vector2.new(0,0.5), Position = UDim2.fromOffset(236,210), Size = UDim2.fromOffset(0,380),
+			BackgroundColor3 = "@Secondary", BorderSizePixel = 0, ClipsDescendants = true, Visible = false, GroupTransparency = 1}), 14)
+		New("UIStroke", Panel, {Color = "@Border", Thickness = 1})
+		local PanelHead = New("Frame", Panel, {Size = UDim2.new(1,0,0,30), BackgroundTransparency = 1})
+		local panelTitle = New("TextLabel", PanelHead, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,-20,1,0), BackgroundTransparency = 1, TextColor3 = "@Accent", Font = GOTHB, TextSize = 12, TextXAlignment = LEFT})
+		local Page = New("ScrollingFrame", Panel, {Position = UDim2.fromOffset(10,34), Size = UDim2.new(1,-20,1,-44), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ScrollBarThickness = 3, ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+		New("UIListLayout", Page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+		New("UIPadding", Page, {PaddingBottom = UDim.new(0,10), PaddingRight = UDim.new(0,4)})
+
+		local Pages, Wedges, Active, PanelOpen = {}, {}, nil, false
+		local function ClosePanel()
+			PanelOpen = false
+			Tween(Panel, {Size = UDim2.fromOffset(0,380), GroupTransparency = 1}, 0.2)
+			task.delay(0.21, function() if not PanelOpen then Panel.Visible = false end end)
+			for _, w in pairs(Wedges) do Tween(w.Icon, {BackgroundColor3 = Theme.Row}, 0.15) end
+			closeBtn.Visible = false
+		end
+		local function OpenPanel(name)
+			Active = name
+			for n, p in pairs(Pages) do p.Visible = n == name end
+			for n, w in pairs(Wedges) do Tween(w.Icon, {BackgroundColor3 = n == name and Theme.Accent or Theme.Row}, 0.15) end
+			for _, t in ipairs(Spec) do if t.Key == name then panelTitle.Text = Locale.T(t.Locale) end end
+			Panel.Visible = true; PanelOpen = true
+			Tween(Panel, {Size = UDim2.fromOffset(360,380), GroupTransparency = 0}, 0.22, Enum.EasingStyle.Back)
+			closeBtn.Visible = true
+		end
+		local function Toggle(name)
+			if PanelOpen and Active == name then ClosePanel() else OpenPanel(name) end
+		end
+		Connect(closeBtn.MouseButton1Click, function() DebugLog.Push("system", "close pressed, unloading"); Unload() end)
+		table.insert(Refreshers, function() if PanelOpen and Active then for _, t in ipairs(Spec) do if t.Key == Active then panelTitle.Text = Locale.T(t.Locale) end end end end)
+
+		local C = {}
+		local function row(c, h, click)
+			c.n += 1
+			local parent = c.group or c.page
+			local r = New(click and "TextButton" or "Frame", parent, {Size = UDim2.new(1,0,0,h), BackgroundColor3 = "@Row", BorderSizePixel = 0, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			if click then r.Text = ""; r.AutoButtonColor = false end
+			return Round(r, 8)
+		end
+		local function rl(r, it, w) return Lbl(r, it, {Position = UDim2.fromOffset(14,0), Size = UDim2.new(1,w or -170,1,0), TextColor3 = "@Text", Font = GOTHM, TextSize = 12, TextXAlignment = LEFT}) end
+		function C.section(it, c)
+			c.n += 1
+			local h = New("TextButton", c.page, {Size = UDim2.new(1,0,0,20), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = c.n})
+			Lbl(h, it, {Position = UDim2.fromOffset(2,0), Size = UDim2.new(1,-20,1,0), TextColor3 = "@Accent", Font = GOTHB, TextSize = 11, TextXAlignment = LEFT})
+			local chevron = New("TextLabel", h, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-2,0.5,0), Size = UDim2.fromOffset(14,14), BackgroundTransparency = 1,
+				Text = "v", TextColor3 = "@Muted", Font = GOTHB, TextSize = 9})
+			c.n += 1
+			local group = New("Frame", c.page, {Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = c.n})
+			New("UIListLayout", group, {Padding = UDim.new(0,6), SortOrder = Enum.SortOrder.LayoutOrder})
+			c.group, c.gn = group, 1
+			CollapseOnScroll(h, group, chevron)
+		end
+		function C.label(it, c)
+			c.n += 1
+			local parent = c.group or c.page
+			local h = New("Frame", parent, {Size = UDim2.new(1,0,0,16), BackgroundTransparency = 1, LayoutOrder = c.group and c.gn or c.n})
+			if c.group then c.gn = (c.gn or 0) + 1 end
+			Lbl(h, it, {Size = UDim2.new(1,0,1,0), TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+		function C.toggle(it, c)
+			local r = row(c, 34, true); rl(r, it, -60)
+			local track = Round(New("Frame", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(32,17), BorderSizePixel = 0}), 100)
+			local knob = Round(New("Frame", track, {AnchorPoint = Vector2.new(0,0.5), Size = UDim2.fromOffset(12,12), BorderSizePixel = 0}), 100)
+			ToggleLogic(it, r, function(on)
+				Tween(track, {BackgroundColor3 = on and Theme.Accent or Theme.Background}, 0.15)
+				Tween(knob, {Position = on and UDim2.new(1,-14,0.5,0) or UDim2.new(0,3,0.5,0), BackgroundColor3 = on and Theme.Background or Theme.Muted}, 0.15)
+			end)
+		end
+		function C.slider(it, c)
+			local r = row(c, 46)
+			Lbl(r, it, {Position = UDim2.fromOffset(12,6), Size = UDim2.new(1,-90,0,14), TextColor3 = "@Text", Font = GOTHM, TextSize = 11, TextXAlignment = LEFT})
+			local val = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-12,0,6), Size = UDim2.fromOffset(70,14), BackgroundTransparency = 1, TextColor3 = "@SubText", Font = GOTHB, TextSize = 10, TextXAlignment = RIGHT})
+			local track = Round(New("Frame", r, {Position = UDim2.fromOffset(12,30), Size = UDim2.new(1,-24,0,4), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 100)
+			local fill = Round(New("Frame", track, {Size = UDim2.fromScale(0,1), BackgroundColor3 = "@Accent", BorderSizePixel = 0}), 100)
+			SliderLogic(it, r, track, function(a, txt) Tween(fill, {Size = UDim2.fromScale(a,1)}, 0.08); val.Text = txt end)
+		end
+		local function sideBtn(r)
+			local b = Round(New("TextButton", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(110,22), BackgroundColor3 = "@Background",
+				Text = "", TextColor3 = "@Text", Font = GOTHB, TextSize = 10, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			return b
+		end
+		function C.choice(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			local sw = AttachColorSwatch(it, r, 14)
+			if sw then sw.Position = UDim2.new(1,-128,0.5,0) end
+			ChoiceLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.bind(it, c)
+			local r = row(c, 34); rl(r, it); local b = sideBtn(r)
+			BindLogic(it, b, function(t) b.Text = t end)
+		end
+		function C.action(it, c)
+			local r = row(c, 32)
+			local b = Round(New("TextButton", r, {Position = UDim2.fromOffset(8,4), Size = UDim2.new(1,-16,1,-8), BackgroundColor3 = "@Accent", TextColor3 = "@Background",
+				Font = GOTHB, TextSize = 11, AutoButtonColor = false, BorderSizePixel = 0}), 6)
+			Locale.Bind(b, it.l)
+			Connect(b.MouseButton1Click, it.fn)
+		end
+		function C.input(it, c)
+			local r = row(c, it.h)
+			local box = Round(MakeInput(r, it, {Position = UDim2.fromOffset(10,6), Size = UDim2.new(1,-20,1,-12), BackgroundColor3 = "@Background", BorderSizePixel = 0}), 6)
+			New("UIPadding", box, {PaddingLeft = UDim.new(0,8), PaddingRight = UDim.new(0,8)})
+		end
+		function C.info(it, c)
+			local r = row(c, 32); rl(r, it, -220)
+			local v = New("TextLabel", r, {AnchorPoint = Vector2.new(1,0.5), Position = UDim2.new(1,-10,0.5,0), Size = UDim2.fromOffset(200,18), BackgroundTransparency = 1,
+				TextColor3 = "@SubText", Font = GOTHB, TextSize = 11, TextXAlignment = RIGHT, TextTruncate = Enum.TextTruncate.AtEnd})
+			InfoReg(v, it)
+		end
+		function C.log(it, c)
+			local r = row(c, 240)
+			local s = New("ScrollingFrame", r, {Position = UDim2.fromOffset(8,8), Size = UDim2.new(1,-16,1,-16), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+				ScrollBarImageColor3 = "@Accent", CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y})
+			New("UIListLayout", s, {Padding = UDim.new(0,1), SortOrder = Enum.SortOrder.LayoutOrder})
+			Widgets.log = s
+		end
+		function C.avatar(it, c)
+			local r = row(c, 64)
+			local img = MakeAvatar(r, 46); img.Position = UDim2.fromOffset(9,9)
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,14), Size = UDim2.new(1,-70,0,18), BackgroundTransparency = 1, Text = LocalPlayer.Name, TextColor3 = "@Text", Font = GOTHB, TextSize = 13, TextXAlignment = LEFT})
+			New("TextLabel", r, {Position = UDim2.fromOffset(62,32), Size = UDim2.new(1,-70,0,14), BackgroundTransparency = 1, Text = "@" .. LocalPlayer.DisplayName, TextColor3 = "@SubText", Font = GOTHM, TextSize = 10, TextXAlignment = LEFT})
+		end
+
+		local count = #Spec
+		for i, tab in ipairs(Spec) do
+			local page = New("Frame", Page, {Name = tab.Key, Size = UDim2.new(1,0,0,0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Visible = false})
+			New("UIListLayout", page, {Padding = UDim.new(0,8), SortOrder = Enum.SortOrder.LayoutOrder})
+			Pages[tab.Key] = page
+			local angle = -90 + (i - 1) * (360 / count)
+			local rad = math.rad(angle)
+			local r0 = 88
+			local icon = Round(New("TextButton", Ring, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.new(0.5, math.cos(rad) * r0, 0.5, math.sin(rad) * r0),
+				Size = UDim2.fromOffset(36,36), BackgroundColor3 = "@Row", Text = tostring(i), TextColor3 = "@SubText", Font = GOTHB, TextSize = 12, AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 2}), 100)
+			New("UIStroke", icon, {Color = "@Border", Thickness = 1})
+			Wedges[tab.Key] = {Icon = icon}
+			Connect(icon.MouseButton1Click, function() Toggle(tab.Key) end)
+			BuildTab(tab, page, C)
+		end
+
+		return {
+			Show = function(state)
+				if state then Root.Visible = true end
+				Tween(RingScale, {Scale = state and 1 or 0.88}, 0.25, Enum.EasingStyle.Back)
+				Tween(Ring, {GroupTransparency = state and S.UIOpacity or 1}, 0.2)
+				if not state then ClosePanel(); task.delay(0.22, function() if not MenuState.Open and Root.Parent then Root.Visible = false end end) end
+			end,
+			Scale = function(v) RingScale.Scale = v end,
+			Opacity = function(v) if MenuState.Open then Ring.GroupTransparency = v end end,
+			Destroy = function() glow:Cancel() end,
+		}
+	end
+
 	Unload = function()
 		if Unloaded then return end
 		Unloaded = true
@@ -3062,7 +3532,6 @@ local EntryOrder, EntryIndex = {}, {}
 	end
 	Env.VortexUnload = Unload
 
-	---------------------------------------------------------- BUILD MENU (with fallback to Classic if a skin errors)
 	local okSkin, resSkin = pcall(Skins[skinName] or Skins.Classic)
 	if okSkin then
 		Skin = resSkin
@@ -3082,7 +3551,6 @@ local EntryOrder, EntryIndex = {}, {}
 		Connect(fab.MouseButton1Click, function() SetMenu(not MenuState.Open) end)
 	end
 
-	---------------------------------------------------------- INPUT
 	Connect(UserInputService.InputChanged, function(input)
 		local t = input.UserInputType
 		if t ~= Enum.UserInputType.MouseMovement and t ~= Enum.UserInputType.Touch then return end
@@ -3146,7 +3614,6 @@ local EntryOrder, EntryIndex = {}, {}
 		model = CanonicalBotModel(model)
 		if Unloaded or not model then return end
 
-		-- Never create two ESP records for the same NPC rig.
 		local hum, root = GetBotParts(model)
 		if hum and BotByHumanoid[hum] then return end
 		if root and BotByRoot[root] then return end
@@ -3183,7 +3650,6 @@ local EntryOrder, EntryIndex = {}, {}
 		end
 	end)
 
-	-- Spread initial NPC discovery across several frames to avoid a join-time spike on large places.
 	task.spawn(function()
 		local descendants = Workspace:GetDescendants()
 		for i, obj in ipairs(descendants) do
@@ -3228,10 +3694,9 @@ local EntryOrder, EntryIndex = {}, {}
 	SetMenu(true)
 	Notify(Locale.T("TOAST_LOADED"))
 	DebugLog.Push("system", "hub loaded successfully")
-	RenderLog() -- one report on load; the next one only on REFRESH LOG
+	RenderLog()
 end
 
----------------------------------------------------------------- MENU PICKER (4 different menu styles, shown right after the key)
 local function RunMenuPicker(onPick)
 	local gui = New("ScreenGui", PlayerGui, {Name = "VortexMenuPick", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 90})
 	local dim = New("Frame", gui, {Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0, Active = true})
@@ -3247,9 +3712,10 @@ local function RunMenuPicker(onPick)
 	local closeAll = Round(New("TextButton", holder, {AnchorPoint = Vector2.new(1,0), Position = UDim2.new(1,-24,0,24), Size = UDim2.fromOffset(34,34), BackgroundColor3 = Color3.fromRGB(24,24,30),
 		Text = "X", TextColor3 = Color3.fromRGB(255,90,100), Font = GOTHB, TextSize = 16, AutoButtonColor = false, BorderSizePixel = 0}), 8)
 
-	local names = {"Classic", "Windows", "Dock", "Terminal"}
-	local descs = {Classic = "Sidebar tabs + rows", Windows = "Floating draggable panels", Dock = "Bottom dock + tile grid", Terminal = "Monospace console"}
-	local cardsHolder = New("Frame", holder, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.54), Size = UDim2.fromOffset(#names * 200 + (#names - 1) * 20, 270), BackgroundTransparency = 1})
+	local names = {"Classic", "Windows", "Dock", "Terminal", "Notch", "HUDStrip", "Radial"}
+	local descs = {Classic = "Sidebar tabs + rows", Windows = "Floating draggable panels", Dock = "Bottom dock + tile grid", Terminal = "Monospace console",
+		Notch = "Top pill, tap-to-expand sheet", HUDStrip = "Always-on bottom HUD + pop panel", Radial = "Ring of wedges + side panel"}
+	local cardsHolder = New("Frame", holder, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.54), Size = UDim2.fromOffset(#names * 200 + (#names - 1) * 20, 320), BackgroundTransparency = 1})
 	New("UIListLayout", cardsHolder, {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0,20), HorizontalAlignment = Enum.HorizontalAlignment.Center, VerticalAlignment = Enum.VerticalAlignment.Center})
 	local vpx = Camera.ViewportSize.X
 	New("UIScale", cardsHolder, {Scale = math.clamp((vpx - 40) / (#names * 220), 0.4, 1)})
@@ -3286,7 +3752,7 @@ local function RunMenuPicker(onPick)
 			end
 			local dk = Box(parent, 30, 112, 120, 26, p.Secondary, 13)
 			for i = 0, 3 do Box(dk, 10 + i * 27, 7, 22, 12, i == 0 and p.Accent or p.Row, 6) end
-		else
+		elseif name == "Terminal" then
 			local t = Box(parent, 6, 6, 168, 138, p.Background)
 			New("UIStroke", t, {Color = p.Accent, Thickness = 1})
 			Box(t, 0, 0, 168, 12, p.Secondary)
@@ -3295,6 +3761,29 @@ local function RunMenuPicker(onPick)
 				Box(t, 8, 20 + (i - 1) * 16, 40 + (i * 13) % 50, 5, p.SubText)
 				Box(t, 130, 20 + (i - 1) * 16, 26, 5, i % 2 == 0 and p.Accent or p.Muted)
 			end
+		elseif name == "Notch" then
+			local pill = Box(parent, 30, 4, 120, 20, p.Secondary, 10)
+			New("UIStroke", pill, {Color = p.Accent, Thickness = 1})
+			for i = 0, 3 do Box(pill, 8 + i * 24, 4, 18, 12, i == 0 and p.Accent or p.Row, 6) end
+			local sheet = Box(parent, 20, 30, 140, 100, p.Background, 10)
+			New("UIStroke", sheet, {Color = p.Border, Thickness = 1})
+			for i = 1, 4 do Box(sheet, 10, 8 + (i - 1) * 22, 120, 16, p.Row, 5) end
+		elseif name == "HUDStrip" then
+			local strip = Box(parent, 10, 118, 160, 24, p.Background, 12)
+			New("UIStroke", strip, {Color = p.Accent, Thickness = 1})
+			for i = 0, 3 do Box(strip, 8 + i * 38, 6, 32, 12, p.Row, 4) end
+			local panel = Box(parent, 30, 20, 120, 90, p.Secondary, 8)
+			New("UIStroke", panel, {Color = p.Border, Thickness = 1})
+			for i = 1, 3 do Box(panel, 8, 8 + (i - 1) * 26, 104, 18, p.Row, 5) end
+		elseif name == "Radial" then
+			local ring = Box(parent, 20, 15, 120, 120, p.Secondary, 60)
+			New("UIStroke", ring, {Color = p.Accent, Thickness = 1.5})
+			Box(ring, 44, 44, 32, 32, p.Background, 16)
+			for i = 0, 5 do
+				local a = math.rad(-90 + i * 60)
+				Box(ring, 60 + math.cos(a) * 46 - 8, 60 + math.sin(a) * 46 - 8, 16, 16, i == 0 and p.Accent or p.Row, 8)
+			end
+			Box(parent, 148, 20, 32, 110, p.Background, 6)
 		end
 	end
 
@@ -3304,17 +3793,35 @@ local function RunMenuPicker(onPick)
 		local p = {}
 		for k, v in pairs(Themes[pref[1]]) do p[k] = v end
 		if AccentColors[pref[2]] then p.Accent = AccentColors[pref[2]] end
-		local card = Round(New("TextButton", cardsHolder, {Size = UDim2.fromOffset(200,270), BackgroundColor3 = p.Background, Text = "", AutoButtonColor = false, BorderSizePixel = 0}), 14)
+		local card = Round(New("TextButton", cardsHolder, {Size = UDim2.fromOffset(200,320), BackgroundColor3 = p.Background, Text = "", AutoButtonColor = false, BorderSizePixel = 0}), 14)
 		local stroke = New("UIStroke", card, {Color = p.Border, Thickness = 1.5})
 		local pv = New("Frame", card, {Position = UDim2.fromOffset(10,10), Size = UDim2.fromOffset(180,150), BackgroundColor3 = p.Secondary, BorderSizePixel = 0, ClipsDescendants = true})
 		New("UICorner", pv, {CornerRadius = UDim.new(0,8)})
 		Preview(name, pv, p)
 		New("TextLabel", card, {Position = UDim2.fromOffset(0,172), Size = UDim2.new(1,0,0,26), BackgroundTransparency = 1, Text = string.upper(name), TextColor3 = p.Text, Font = GOTHB, TextSize = 16})
 		New("TextLabel", card, {Position = UDim2.fromOffset(0,198), Size = UDim2.new(1,0,0,18), BackgroundTransparency = 1, Text = descs[name], TextColor3 = p.SubText, Font = GOTHM, TextSize = 11})
-		local sel = Round(New("Frame", card, {AnchorPoint = Vector2.new(0.5,1), Position = UDim2.new(0.5,0,1,-14), Size = UDim2.fromOffset(120,26), BackgroundColor3 = p.Accent, BorderSizePixel = 0}), 8)
+		local sel = Round(New("Frame", card, {AnchorPoint = Vector2.new(0.5,0), Position = UDim2.new(0.5,0,0,222), Size = UDim2.fromOffset(120,26), BackgroundColor3 = p.Accent, BorderSizePixel = 0}), 8)
 		New("TextLabel", sel, {Size = UDim2.fromScale(1,1), BackgroundTransparency = 1, Text = "SELECT", TextColor3 = p.Background, Font = GOTHB, TextSize = 12})
-		card.MouseEnter:Connect(function() Tween(stroke, {Color = p.Accent, Thickness = 2.5}, 0.15) end)
-		card.MouseLeave:Connect(function() Tween(stroke, {Color = p.Border, Thickness = 1.5}, 0.15) end)
+
+		local iconHolder = New("Frame", card, {AnchorPoint = Vector2.new(0.5,0), Position = UDim2.new(0.5,0,0,258), Size = UDim2.fromOffset(40,40), BackgroundTransparency = 1})
+		local iconScale = New("UIScale", iconHolder, {Scale = 1})
+		local icon = Round(New("Frame", iconHolder, {AnchorPoint = Vector2.new(0.5,0), Size = UDim2.fromOffset(40,40), BackgroundColor3 = p.Secondary, BorderSizePixel = 0, ClipsDescendants = true, BackgroundTransparency = 0.35}), 8)
+		local iconStroke = New("UIStroke", icon, {Color = p.Border, Thickness = 1, Transparency = 0.3})
+		local iconInner = New("Frame", icon, {AnchorPoint = Vector2.new(0.5,0.5), Position = UDim2.fromScale(0.5,0.5), Size = UDim2.fromOffset(180,150), BackgroundTransparency = 1})
+		local iconInnerScale = New("UIScale", iconInner, {Scale = 40 / 180})
+		Preview(name, iconInner, p)
+		card.MouseEnter:Connect(function()
+			Tween(stroke, {Color = p.Accent, Thickness = 2.5}, 0.15)
+			Tween(iconScale, {Scale = 1.6}, 0.16, Enum.EasingStyle.Back)
+			Tween(icon, {BackgroundTransparency = 0}, 0.16)
+			Tween(iconStroke, {Color = p.Accent, Transparency = 0}, 0.16)
+		end)
+		card.MouseLeave:Connect(function()
+			Tween(stroke, {Color = p.Border, Thickness = 1.5}, 0.15)
+			Tween(iconScale, {Scale = 1}, 0.16)
+			Tween(icon, {BackgroundTransparency = 0.35}, 0.16)
+			Tween(iconStroke, {Color = p.Border, Transparency = 0.3}, 0.16)
+		end)
 		card.MouseButton1Click:Connect(function()
 			if picked then return end
 			picked = true
@@ -3336,7 +3843,6 @@ local function RunMenuPicker(onPick)
 	end)
 end
 
----------------------------------------------------------------- KEY SYSTEM
 local function RunKeySystem(onSuccess)
 	local gui = New("ScreenGui", PlayerGui, {Name = "VortexAuth", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 100})
 	local dim = New("Frame", gui, {Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0, Active = true})
@@ -3463,7 +3969,6 @@ local function RunKeySystem(onSuccess)
 	Tween(scale, {Scale = 1}, 0.45, Enum.EasingStyle.Back)
 end
 
----------------------------------------------------------------- EULA
 local function RunEula(onAccept)
 	local gui = New("ScreenGui", PlayerGui, {Name = "VortexEula", ResetOnSpawn = false, IgnoreGuiInset = true, ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 100})
 	local dim = New("Frame", gui, {Size = UDim2.fromScale(1,1), BackgroundColor3 = Color3.new(0,0,0), BackgroundTransparency = 1, BorderSizePixel = 0, Active = true})
@@ -3534,18 +4039,27 @@ local function RunEula(onAccept)
 	Tween(scale, {Scale = 1}, 0.45, Enum.EasingStyle.Back)
 end
 
----------------------------------------------------------------- BOOT
+local function ProceedPastEula()
+	DebugLog.Push("system", "menu picker presented")
+	RunMenuPicker(function(skin)
+		local ok, err = pcall(LaunchHub, skin)
+		if not ok then
+			DebugLog.Push("system", "hub launch error: " .. tostring(err), true)
+			warn("[Vortex] " .. tostring(err))
+		end
+	end)
+end
+
 DebugLog.Push("system", "auth gate presented")
 RunKeySystem(function()
+	if LoadSetting("eula_accepted", "0") == "1" then
+		DebugLog.Push("system", "eula previously accepted, skipping")
+		ProceedPastEula()
+		return
+	end
 	DebugLog.Push("system", "eula presented")
 	RunEula(function()
-		DebugLog.Push("system", "menu picker presented")
-		RunMenuPicker(function(skin)
-			local ok, err = pcall(LaunchHub, skin)
-			if not ok then
-				DebugLog.Push("system", "hub launch error: " .. tostring(err), true)
-				warn("[Vortex] " .. tostring(err))
-			end
-		end)
+		SaveSetting("eula_accepted", "1")
+		ProceedPastEula()
 	end)
 end)
