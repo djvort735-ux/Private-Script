@@ -1,9 +1,3 @@
--- dolp // kickvortex suite v7
--- executor. RIGHT SHIFT = menu, X or END = full unload.
--- no require(): executor context is CoreGui, game modules are blocked there.
--- actions go through the game's own bindables/remotes, so real kill/stage/train logic runs.
--- only CalculateUtils (damage numbers) and EncodingUtils (train list decode) come from gc.
-
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
@@ -513,7 +507,7 @@ pcall(function()
 			for i = 1, math.min(#args, 4) do
 				parts[i] = typeof(args[i]) == "table" and "{table}" or tostring(args[i])
 			end
-			print(string.format("[dolp.remote] %s:%s(%s)", self.Name, m, table.concat(parts, ", ")))
+			print(string.format("[vortex.remote] %s:%s(%s)", self.Name, m, table.concat(parts, ", ")))
 		end
 		return oldNamecall(self, ...)
 	end))
