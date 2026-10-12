@@ -552,7 +552,7 @@ local C = {
 }
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "dolp_" .. HttpService:GenerateGUID(false):sub(1, 8)
+gui.Name = "Vortex_" .. HttpService:GenerateGUID(false):sub(1, 8)
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 999
 gui.IgnoreGuiInset = true
@@ -1081,4 +1081,4 @@ track(UIS.InputBegan:Connect(function(i, gp)
 end))
 
 refreshAll()
-print("dolp: loaded. RIGHT SHIFT = menu, X / END = unload. CONFIG tab shows what's connected")
+print("Vortex: loaded. RIGHT SHIFT = menu, X / END = unload. CONFIG tab shows what's connected")
