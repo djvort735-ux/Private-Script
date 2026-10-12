@@ -12,7 +12,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 
 local LP = Players.LocalPlayer
-local CONFIG_FILE = "dolp_kickvortex.json"
+local CONFIG_FILE = "Vortex.json"
 local newcc = newcclosure or function(f) return f end
 
 local function new(class, props, parent)
@@ -573,7 +573,7 @@ local bar = new("TextLabel", {
 	Size = UDim2.new(1, 0, 0, 36),
 	BackgroundColor3 = C.panel,
 	BorderSizePixel = 0,
-	Text = "  dolp // kickvortex   [RSHIFT]",
+	Text = "  Vortex   [RSHIFT]",
 	TextColor3 = C.text,
 	Font = Enum.Font.GothamBold,
 	TextSize = 15,
